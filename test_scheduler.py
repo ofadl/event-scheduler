@@ -4,10 +4,12 @@ Run with: pytest test_scheduler.py -v
 """
 
 import pytest
+import time
 from datetime import datetime, timedelta
 from scheduler import (
     Location, TimeSlot, Session, Schedule, ScheduleEntry,
-    Priority, SessionScheduler
+    Priority, SessionScheduler, BacktrackingScheduler,
+    BranchAndBoundScheduler, ILPScheduler
 )
 from mock_data import MockDataGenerator
 
@@ -514,6 +516,500 @@ class TestEdgeCases:
         
         # Can't attend both with 3 hour travel time
         assert len(schedule.entries) == 1
+
+
+class TestBacktrackingScheduler:
+    """Test BacktrackingScheduler class"""
+
+    def test_simple_scenario(self):
+        """Test backtracking with simple scenario"""
+        sessions, travel_times = MockDataGenerator.create_simple_scenario()
+
+        scheduler = BacktrackingScheduler(sessions, travel_times)
+        schedule = scheduler.optimize_schedule()
+
+        # Backtracking should find optimal solution
+        assert len(schedule.entries) >= 2
+
+        stats = scheduler.get_statistics(schedule)
+        assert stats['must_attend']['percentage'] == 100.0  # Should schedule all must-attend
+
+    def test_must_attend_priority(self):
+        """Verify must-attend sessions are prioritized"""
+        sessions, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
+
+        scheduler = BacktrackingScheduler(sessions, travel_times)
+        schedule = scheduler.optimize_schedule()
+
+        stats = scheduler.get_statistics(schedule)
+
+        # Should maximize must-attend
+        assert stats['must_attend']['scheduled'] >= 3
+        assert 'nodes_explored' in stats
+        assert stats['nodes_explored'] > 0
+
+    def test_no_conflicts_in_schedule(self):
+        """Verify final schedule has no conflicts"""
+        sessions, travel_times = MockDataGenerator.create_simple_scenario()
+
+        scheduler = BacktrackingScheduler(sessions, travel_times)
+        schedule = scheduler.optimize_schedule()
+
+        # Check all pairs of scheduled time slots for conflicts
+        time_slots = schedule.get_time_slots()
+
+        for i, slot1 in enumerate(time_slots):
+            for slot2 in time_slots[i+1:]:
+                loc1 = slot1.location
+                loc2 = slot2.location
+
+                # Get travel time
+                if loc1 == loc2:
+                    travel_time = 0
+                else:
+                    key = (loc1.id, loc2.id)
+                    reverse_key = (loc2.id, loc1.id)
+                    travel_time = travel_times.get(key, travel_times.get(reverse_key, 0))
+
+                # Should not conflict
+                assert not slot1.conflicts_with(slot2, travel_time)
+
+
+class TestBranchAndBoundScheduler:
+    """Test BranchAndBoundScheduler class"""
+
+    def test_simple_scenario(self):
+        """Test branch and bound with simple scenario"""
+        sessions, travel_times = MockDataGenerator.create_simple_scenario()
+
+        scheduler = BranchAndBoundScheduler(sessions, travel_times)
+        schedule = scheduler.optimize_schedule()
+
+        # Branch and bound should find optimal solution
+        assert len(schedule.entries) >= 2
+
+        stats = scheduler.get_statistics(schedule)
+        assert stats['must_attend']['percentage'] == 100.0
+
+    def test_pruning_effectiveness(self):
+        """Verify that pruning reduces nodes explored"""
+        sessions, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
+
+        # Run backtracking
+        bt_scheduler = BacktrackingScheduler(sessions, travel_times)
+        bt_schedule = bt_scheduler.optimize_schedule()
+        bt_stats = bt_scheduler.get_statistics(bt_schedule)
+
+        # Run branch and bound
+        bb_scheduler = BranchAndBoundScheduler(sessions, travel_times)
+        bb_schedule = bb_scheduler.optimize_schedule()
+        bb_stats = bb_scheduler.get_statistics(bb_schedule)
+
+        # Branch and bound should explore fewer nodes (due to pruning)
+        assert bb_stats['nodes_explored'] <= bt_stats['nodes_explored']
+        assert bb_stats['branches_pruned'] > 0
+
+        # Both should find same optimal solution
+        assert bb_stats['must_attend']['scheduled'] == bt_stats['must_attend']['scheduled']
+        assert bb_stats['scheduled_sessions'] == bt_stats['scheduled_sessions']
+
+    def test_complex_scenario(self):
+        """Test with complex scenario"""
+        sessions, travel_times = MockDataGenerator.create_complex_scenario()
+
+        scheduler = BranchAndBoundScheduler(sessions, travel_times)
+        schedule = scheduler.optimize_schedule()
+
+        stats = scheduler.get_statistics(schedule)
+
+        # Should schedule something
+        assert stats['scheduled_sessions'] > 0
+        assert stats['branches_pruned'] > 0
+
+
+class TestILPScheduler:
+    """Test ILPScheduler class"""
+
+    def test_simple_scenario(self):
+        """Test ILP with simple scenario"""
+        sessions, travel_times = MockDataGenerator.create_simple_scenario()
+
+        try:
+            scheduler = ILPScheduler(sessions, travel_times)
+            schedule = scheduler.optimize_schedule()
+
+            # ILP should find optimal solution
+            assert len(schedule.entries) >= 2
+
+            stats = scheduler.get_statistics(schedule)
+            assert stats['must_attend']['percentage'] == 100.0
+        except ImportError:
+            pytest.skip("pulp library not installed")
+
+    def test_aws_reinvent_scenario(self):
+        """Test ILP with AWS re:Invent scenario"""
+        sessions, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
+
+        try:
+            scheduler = ILPScheduler(sessions, travel_times)
+            schedule = scheduler.optimize_schedule()
+
+            stats = scheduler.get_statistics(schedule)
+
+            # ILP should find optimal solution
+            assert stats['scheduled_sessions'] > 0
+            assert stats['must_attend']['scheduled'] >= 3
+        except ImportError:
+            pytest.skip("pulp library not installed")
+
+    def test_no_conflicts_in_schedule(self):
+        """Verify final schedule has no conflicts"""
+        sessions, travel_times = MockDataGenerator.create_simple_scenario()
+
+        try:
+            scheduler = ILPScheduler(sessions, travel_times)
+            schedule = scheduler.optimize_schedule()
+
+            # Check all pairs of scheduled time slots for conflicts
+            time_slots = schedule.get_time_slots()
+
+            for i, slot1 in enumerate(time_slots):
+                for slot2 in time_slots[i+1:]:
+                    loc1 = slot1.location
+                    loc2 = slot2.location
+
+                    # Get travel time
+                    if loc1 == loc2:
+                        travel_time = 0
+                    else:
+                        key = (loc1.id, loc2.id)
+                        reverse_key = (loc2.id, loc1.id)
+                        travel_time = travel_times.get(key, travel_times.get(reverse_key, 0))
+
+                    # Should not conflict
+                    assert not slot1.conflicts_with(slot2, travel_time)
+        except ImportError:
+            pytest.skip("pulp library not installed")
+
+
+class TestSchedulerComparison:
+    """Compare effectiveness of all four scheduling algorithms"""
+
+    def _compare_schedulers(self, sessions, travel_times, scenario_name):
+        """Helper to compare all schedulers on a scenario"""
+        schedulers = {
+            'Greedy': SessionScheduler(sessions, travel_times),
+            'Backtracking': BacktrackingScheduler(sessions, travel_times),
+            'Branch & Bound': BranchAndBoundScheduler(sessions, travel_times),
+        }
+
+        # Try to add ILP if pulp is available
+        try:
+            schedulers['ILP'] = ILPScheduler(sessions, travel_times)
+        except ImportError:
+            pass
+
+        results = {}
+
+        for name, scheduler in schedulers.items():
+            start_time = time.time()
+            schedule = scheduler.optimize_schedule()
+            elapsed_time = time.time() - start_time
+
+            stats = scheduler.get_statistics(schedule)
+            stats['elapsed_time'] = elapsed_time
+            stats['algorithm'] = name
+
+            results[name] = stats
+
+        return results
+
+    def test_simple_scenario_comparison(self):
+        """Compare all schedulers on simple scenario"""
+        sessions, travel_times = MockDataGenerator.create_simple_scenario()
+        results = self._compare_schedulers(sessions, travel_times, "Simple")
+
+        print("\n" + "="*80)
+        print(f"SIMPLE SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print("="*80)
+
+        for name, stats in results.items():
+            print(f"\n{name} Algorithm:")
+            print(f"  Total Scheduled: {stats['scheduled_sessions']}/{stats['total_sessions']}")
+            print(f"  Must-Attend: {stats['must_attend']['scheduled']}/{stats['must_attend']['total']} ({stats['must_attend']['percentage']:.1f}%)")
+            print(f"  Optional: {stats['optional']['scheduled']}/{stats['optional']['total']} ({stats['optional']['percentage']:.1f}%)")
+            print(f"  Time: {stats['elapsed_time']*1000:.2f}ms")
+            if 'nodes_explored' in stats:
+                print(f"  Nodes Explored: {stats['nodes_explored']}")
+            if 'branches_pruned' in stats:
+                print(f"  Branches Pruned: {stats['branches_pruned']}")
+
+        # All should find optimal solution for simple scenario
+        must_attend_scheduled = [stats['must_attend']['scheduled'] for stats in results.values()]
+
+        # Verify all non-greedy algorithms find same optimal
+        if 'Backtracking' in results and 'Branch & Bound' in results:
+            assert results['Backtracking']['must_attend']['scheduled'] == results['Branch & Bound']['must_attend']['scheduled']
+
+        # Best algorithm should schedule most sessions
+        best_scheduled = max(stats['scheduled_sessions'] for stats in results.values())
+        print(f"\n  Best Result: {best_scheduled}/{len(sessions)} sessions scheduled")
+
+    def test_aws_reinvent_comparison(self):
+        """Compare all schedulers on AWS re:Invent scenario"""
+        sessions, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
+        results = self._compare_schedulers(sessions, travel_times, "AWS re:Invent")
+
+        print("\n" + "="*80)
+        print(f"AWS RE:INVENT SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print("="*80)
+
+        for name, stats in results.items():
+            print(f"\n{name} Algorithm:")
+            print(f"  Total Scheduled: {stats['scheduled_sessions']}/{stats['total_sessions']}")
+            print(f"  Must-Attend: {stats['must_attend']['scheduled']}/{stats['must_attend']['total']} ({stats['must_attend']['percentage']:.1f}%)")
+            print(f"  Optional: {stats['optional']['scheduled']}/{stats['optional']['total']} ({stats['optional']['percentage']:.1f}%)")
+            print(f"  Time: {stats['elapsed_time']*1000:.2f}ms")
+            if 'nodes_explored' in stats:
+                print(f"  Nodes Explored: {stats['nodes_explored']}")
+            if 'branches_pruned' in stats:
+                print(f"  Branches Pruned: {stats['branches_pruned']}")
+
+        # Find best result
+        best_must_attend = max(stats['must_attend']['scheduled'] for stats in results.values())
+        best_total = max(stats['scheduled_sessions'] for stats in results.values()
+                        if stats['must_attend']['scheduled'] == best_must_attend)
+
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+
+        # Non-greedy algorithms should generally perform better than or equal to greedy
+        greedy_scheduled = results['Greedy']['scheduled_sessions']
+
+        for name, stats in results.items():
+            if name != 'Greedy':
+                # Non-greedy should be at least as good for must-attend
+                assert stats['must_attend']['scheduled'] >= results['Greedy']['must_attend']['scheduled']
+
+    def test_complex_scenario_comparison(self):
+        """Compare all schedulers on complex scenario"""
+        sessions, travel_times = MockDataGenerator.create_complex_scenario()
+        results = self._compare_schedulers(sessions, travel_times, "Complex")
+
+        print("\n" + "="*80)
+        print(f"COMPLEX SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print("="*80)
+
+        for name, stats in results.items():
+            print(f"\n{name} Algorithm:")
+            print(f"  Total Scheduled: {stats['scheduled_sessions']}/{stats['total_sessions']}")
+            print(f"  Must-Attend: {stats['must_attend']['scheduled']}/{stats['must_attend']['total']} ({stats['must_attend']['percentage']:.1f}%)")
+            print(f"  Optional: {stats['optional']['scheduled']}/{stats['optional']['total']} ({stats['optional']['percentage']:.1f}%)")
+            print(f"  Time: {stats['elapsed_time']*1000:.2f}ms")
+            if 'nodes_explored' in stats:
+                print(f"  Nodes Explored: {stats['nodes_explored']}")
+            if 'branches_pruned' in stats:
+                print(f"  Branches Pruned: {stats['branches_pruned']}")
+
+        # Find best result
+        best_must_attend = max(stats['must_attend']['scheduled'] for stats in results.values())
+        best_total = max(stats['scheduled_sessions'] for stats in results.values()
+                        if stats['must_attend']['scheduled'] == best_must_attend)
+
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+
+        # This is where differences should be most visible
+        # Non-greedy algorithms should outperform greedy on complex scenarios
+        greedy_must_attend = results['Greedy']['must_attend']['scheduled']
+
+        for name, stats in results.items():
+            if name != 'Greedy':
+                # Non-greedy should schedule at least as many must-attend sessions
+                assert stats['must_attend']['scheduled'] >= greedy_must_attend
+
+    def test_heavy_conflict_scenario_comparison(self):
+        """Compare all schedulers on heavy conflict scenario"""
+        sessions, travel_times = MockDataGenerator.create_heavy_conflict_scenario()
+        results = self._compare_schedulers(sessions, travel_times, "Heavy Conflict")
+
+        print("\n" + "="*80)
+        print(f"HEAVY CONFLICT SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print("="*80)
+
+        for name, stats in results.items():
+            print(f"\n{name} Algorithm:")
+            print(f"  Total Scheduled: {stats['scheduled_sessions']}/{stats['total_sessions']}")
+            print(f"  Must-Attend: {stats['must_attend']['scheduled']}/{stats['must_attend']['total']} ({stats['must_attend']['percentage']:.1f}%)")
+            print(f"  Optional: {stats['optional']['scheduled']}/{stats['optional']['total']} ({stats['optional']['percentage']:.1f}%)")
+            print(f"  Time: {stats['elapsed_time']*1000:.2f}ms")
+            if 'nodes_explored' in stats:
+                print(f"  Nodes Explored: {stats['nodes_explored']}")
+            if 'branches_pruned' in stats:
+                print(f"  Branches Pruned: {stats['branches_pruned']}")
+
+        # Find best result
+        best_must_attend = max(stats['must_attend']['scheduled'] for stats in results.values())
+        best_total = max(stats['scheduled_sessions'] for stats in results.values()
+                        if stats['must_attend']['scheduled'] == best_must_attend)
+
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+
+        # Optimal algorithms should find better solutions than greedy
+        greedy_must_attend = results['Greedy']['must_attend']['scheduled']
+        for name, stats in results.items():
+            if name != 'Greedy':
+                assert stats['must_attend']['scheduled'] >= greedy_must_attend
+
+    def test_travel_intensive_scenario_comparison(self):
+        """Compare all schedulers on travel intensive scenario"""
+        sessions, travel_times = MockDataGenerator.create_travel_intensive_scenario()
+        results = self._compare_schedulers(sessions, travel_times, "Travel Intensive")
+
+        print("\n" + "="*80)
+        print(f"TRAVEL INTENSIVE SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print("="*80)
+
+        for name, stats in results.items():
+            print(f"\n{name} Algorithm:")
+            print(f"  Total Scheduled: {stats['scheduled_sessions']}/{stats['total_sessions']}")
+            print(f"  Must-Attend: {stats['must_attend']['scheduled']}/{stats['must_attend']['total']} ({stats['must_attend']['percentage']:.1f}%)")
+            print(f"  Optional: {stats['optional']['scheduled']}/{stats['optional']['total']} ({stats['optional']['percentage']:.1f}%)")
+            print(f"  Time: {stats['elapsed_time']*1000:.2f}ms")
+            if 'nodes_explored' in stats:
+                print(f"  Nodes Explored: {stats['nodes_explored']}")
+            if 'branches_pruned' in stats:
+                print(f"  Branches Pruned: {stats['branches_pruned']}")
+
+        # Find best result
+        best_must_attend = max(stats['must_attend']['scheduled'] for stats in results.values())
+        best_total = max(stats['scheduled_sessions'] for stats in results.values()
+                        if stats['must_attend']['scheduled'] == best_must_attend)
+
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+
+        # Optimal algorithms should handle travel times better
+        greedy_must_attend = results['Greedy']['must_attend']['scheduled']
+        for name, stats in results.items():
+            if name != 'Greedy':
+                assert stats['must_attend']['scheduled'] >= greedy_must_attend
+
+    def test_sparse_options_scenario_comparison(self):
+        """Compare all schedulers on sparse options scenario"""
+        sessions, travel_times = MockDataGenerator.create_sparse_options_scenario()
+        results = self._compare_schedulers(sessions, travel_times, "Sparse Options")
+
+        print("\n" + "="*80)
+        print(f"SPARSE OPTIONS SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print("="*80)
+
+        for name, stats in results.items():
+            print(f"\n{name} Algorithm:")
+            print(f"  Total Scheduled: {stats['scheduled_sessions']}/{stats['total_sessions']}")
+            print(f"  Must-Attend: {stats['must_attend']['scheduled']}/{stats['must_attend']['total']} ({stats['must_attend']['percentage']:.1f}%)")
+            print(f"  Optional: {stats['optional']['scheduled']}/{stats['optional']['total']} ({stats['optional']['percentage']:.1f}%)")
+            print(f"  Time: {stats['elapsed_time']*1000:.2f}ms")
+            if 'nodes_explored' in stats:
+                print(f"  Nodes Explored: {stats['nodes_explored']}")
+            if 'branches_pruned' in stats:
+                print(f"  Branches Pruned: {stats['branches_pruned']}")
+
+        # Find best result
+        best_must_attend = max(stats['must_attend']['scheduled'] for stats in results.values())
+        best_total = max(stats['scheduled_sessions'] for stats in results.values()
+                        if stats['must_attend']['scheduled'] == best_must_attend)
+
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+
+        # Backtracking critical for finding feasible solutions with sparse options
+        greedy_must_attend = results['Greedy']['must_attend']['scheduled']
+        for name, stats in results.items():
+            if name != 'Greedy':
+                assert stats['must_attend']['scheduled'] >= greedy_must_attend
+
+    def test_large_scale_scenario_comparison(self):
+        """Compare all schedulers on large scale scenario"""
+        sessions, travel_times = MockDataGenerator.create_large_scale_scenario()
+        results = self._compare_schedulers(sessions, travel_times, "Large Scale")
+
+        print("\n" + "="*80)
+        print(f"LARGE SCALE SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print("="*80)
+
+        for name, stats in results.items():
+            print(f"\n{name} Algorithm:")
+            print(f"  Total Scheduled: {stats['scheduled_sessions']}/{stats['total_sessions']}")
+            print(f"  Must-Attend: {stats['must_attend']['scheduled']}/{stats['must_attend']['total']} ({stats['must_attend']['percentage']:.1f}%)")
+            print(f"  Optional: {stats['optional']['scheduled']}/{stats['optional']['total']} ({stats['optional']['percentage']:.1f}%)")
+            print(f"  Time: {stats['elapsed_time']*1000:.2f}ms")
+            if 'nodes_explored' in stats:
+                print(f"  Nodes Explored: {stats['nodes_explored']}")
+            if 'branches_pruned' in stats:
+                print(f"  Branches Pruned: {stats['branches_pruned']}")
+
+        # Find best result
+        best_must_attend = max(stats['must_attend']['scheduled'] for stats in results.values())
+        best_total = max(stats['scheduled_sessions'] for stats in results.values()
+                        if stats['must_attend']['scheduled'] == best_must_attend)
+
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+
+        # Performance differences should be visible at scale
+        greedy_must_attend = results['Greedy']['must_attend']['scheduled']
+        for name, stats in results.items():
+            if name != 'Greedy':
+                assert stats['must_attend']['scheduled'] >= greedy_must_attend
+
+    def test_performance_summary(self):
+        """Print comprehensive performance summary across all scenarios"""
+        scenarios = [
+            ("Simple", MockDataGenerator.create_simple_scenario()),
+            ("AWS re:Invent", MockDataGenerator.create_aws_reinvent_scenario()),
+            ("Complex", MockDataGenerator.create_complex_scenario()),
+            ("Heavy Conflict", MockDataGenerator.create_heavy_conflict_scenario()),
+            ("Travel Intensive", MockDataGenerator.create_travel_intensive_scenario()),
+            ("Sparse Options", MockDataGenerator.create_sparse_options_scenario()),
+            ("Large Scale", MockDataGenerator.create_large_scale_scenario())
+        ]
+
+        print("\n" + "="*80)
+        print("COMPREHENSIVE ALGORITHM COMPARISON")
+        print("="*80)
+
+        for scenario_name, (sessions, travel_times) in scenarios:
+            print(f"\n{scenario_name} Scenario ({len(sessions)} sessions):")
+            print("-" * 80)
+
+            results = self._compare_schedulers(sessions, travel_times, scenario_name)
+
+            # Create comparison table
+            headers = ["Algorithm", "Must-Attend", "Total", "Time (ms)"]
+            rows = []
+
+            for name, stats in results.items():
+                must_attend_str = f"{stats['must_attend']['scheduled']}/{stats['must_attend']['total']}"
+                total_str = f"{stats['scheduled_sessions']}/{stats['total_sessions']}"
+                time_str = f"{stats['elapsed_time']*1000:.2f}"
+                rows.append([name, must_attend_str, total_str, time_str])
+
+            # Print table
+            col_widths = [max(len(str(row[i])) for row in [headers] + rows) for i in range(len(headers))]
+
+            # Header
+            header_line = "  ".join(headers[i].ljust(col_widths[i]) for i in range(len(headers)))
+            print(header_line)
+            print("-" * len(header_line))
+
+            # Rows
+            for row in rows:
+                row_line = "  ".join(str(row[i]).ljust(col_widths[i]) for i in range(len(row)))
+                print(row_line)
+
+        print("\n" + "="*80)
+        print("KEY FINDINGS:")
+        print("- Greedy: Fast but may miss optimal solutions")
+        print("- Backtracking: Finds optimal solution, explores all possibilities")
+        print("- Branch & Bound: Finds optimal solution with pruning for efficiency")
+        print("- ILP: Most powerful, handles complex constraints optimally")
+        print("="*80 + "\n")
 
 
 if __name__ == "__main__":

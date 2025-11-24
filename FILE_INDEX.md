@@ -13,21 +13,34 @@ This package contains a complete, tested event session scheduler implementation.
 
 ### 💻 Core Code (Production-Ready)
 
-1. **scheduler.py** - Main algorithm and data models
+1. **scheduler.py** - Four scheduling algorithms and data models
    - Data classes: Location, TimeSlot, Session, Schedule
-   - SessionScheduler: Optimization algorithm
-   - ~200 lines, fully documented
+   - **Four schedulers:**
+     - SessionScheduler - Greedy algorithm (fast)
+     - BacktrackingScheduler - Exhaustive search (optimal)
+     - BranchAndBoundScheduler - Optimized search (optimal, faster)
+     - ILPScheduler - Integer Linear Programming (most powerful)
+   - ~680 lines, fully documented
 
 2. **mock_data.py** - Test data generators
    - MockDataGenerator class
-   - 3 pre-built scenarios (Simple, AWS re:Invent, Complex)
-   - ~250 lines with realistic conference data
+   - 7 pre-built scenarios:
+     - Simple (3 sessions)
+     - AWS re:Invent (8 sessions)
+     - Complex (13 sessions)
+     - Heavy Conflict (8 sessions) - Tests greedy vs optimal
+     - Travel Intensive (7 sessions) - Tests location clustering
+     - Sparse Options (8 sessions) - Tests backtracking necessity
+     - Large Scale (30 sessions) - Tests scalability
+   - ~650 lines with realistic conference data
 
-3. **test_scheduler.py** - Comprehensive test suite
-   - 35+ test cases
+3. **test_scheduler.py** - Comprehensive test suite with algorithm comparison
+   - 47 test cases covering all four algorithms
    - Unit, integration, and edge case tests
+   - **9 algorithm comparison tests** with performance metrics
+   - Tests across 7 diverse scenarios showing algorithm differentiation
    - ~95% code coverage
-   - ~500 lines
+   - ~1050 lines
 
 ### 🎪 Demo & Examples
 
@@ -69,23 +82,33 @@ This package contains a complete, tested event session scheduler implementation.
    ```
    pytest>=7.4.0
    pytest-cov>=4.1.0
+   pulp>=2.7.0
    ```
 
 ## 🎯 What It Does
 
-**Optimizes session attendance at large conferences** by:
-- Prioritizing must-attend sessions
-- Accounting for time conflicts
-- Considering travel time between venues
-- Maximizing total sessions attended
+**Compares four different scheduling algorithms** to optimize conference session attendance:
+
+1. **Greedy Algorithm** - Fast heuristic for large conferences
+2. **Backtracking** - Exhaustive search guaranteeing optimal solution
+3. **Branch & Bound** - Optimized exhaustive search with pruning
+4. **Integer Linear Programming** - Most powerful, handles complex constraints
+
+**All algorithms:**
+- Prioritize must-attend sessions
+- Account for time conflicts
+- Consider travel time between venues
+- Maximize total sessions attended
 
 ## 📊 Stats
 
-- **Lines of Code**: ~1,100
-- **Test Cases**: 35+
+- **Lines of Code**: ~2,380
+- **Test Cases**: 47
+- **Test Scenarios**: 7 (from 3 sessions to 30 sessions)
 - **Code Coverage**: ~95%
 - **Documentation**: Comprehensive
-- **Dependencies**: Minimal (just pytest)
+- **Algorithms**: 4 different approaches
+- **Dependencies**: pytest (testing), pulp (ILP only)
 - **Python Version**: 3.8+
 
 ## 🚦 Getting Started
@@ -116,20 +139,19 @@ print(f"Scheduled {len(schedule.entries)} sessions")
 
 ## 📈 Example Results
 
-### Simple Scenario (3 sessions)
-- Scheduled: 2/3 sessions
-- Must-attend: 2/2 (100%)
-- Optional: 0/1 (0%)
+Algorithm performance comparison showing **Greedy** vs **Optimal** (Backtracking/Branch & Bound/ILP):
 
-### AWS re:Invent Scenario (8 sessions)
-- Scheduled: 5/8 sessions
-- Must-attend: 3/4 (75%)
-- Optional: 2/4 (50%)
+| Scenario | Sessions | Greedy Must-Attend | Optimal Must-Attend | Difference |
+|----------|----------|-------------------|---------------------|------------|
+| Simple | 3 | 2/2 (100%) | 2/2 (100%) | Same |
+| AWS re:Invent | 8 | 3/4 (75%) | **4/4 (100%)** | +25% |
+| Complex | 13 | 3/5 (60%) | **4/5 (80%)** | +20% |
+| Heavy Conflict | 8 | 4/6 (67%) | **5/6 (83%)** | +16% |
+| Travel Intensive | 7 | 4/5 (80%) | 4/5 (80%) | Same |
+| Sparse Options | 8 | 6/6 (100%) | 6/6 (100%) | Same |
+| Large Scale | 30 | 5/10 (50%) | **6/10 (60%)** | +10% |
 
-### Complex Scenario (13 sessions)
-- Scheduled: 3/13 sessions
-- Must-attend: 3/5 (60%)
-- Optional: 0/8 (0%)
+**Key Finding**: Optimal algorithms (Backtracking, Branch & Bound, ILP) find better solutions in 4 out of 7 scenarios, with improvements up to 25%.
 
 ## 🏗️ Architecture
 

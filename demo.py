@@ -157,11 +157,15 @@ def compare_scenarios():
     print("\n" + "="*80)
     print("SCENARIO COMPARISON")
     print("="*80)
-    
+
     scenarios = [
         ("Simple", MockDataGenerator.create_simple_scenario()),
         ("AWS re:Invent", MockDataGenerator.create_aws_reinvent_scenario()),
         ("Complex", MockDataGenerator.create_complex_scenario()),
+        ("Heavy Conflict", MockDataGenerator.create_heavy_conflict_scenario()),
+        ("Travel Intensive", MockDataGenerator.create_travel_intensive_scenario()),
+        ("Sparse Options", MockDataGenerator.create_sparse_options_scenario()),
+        ("Large Scale", MockDataGenerator.create_large_scale_scenario()),
     ]
     
     results = []
@@ -198,9 +202,22 @@ def main():
     input("\nPress Enter to see comparison...")
     
     compare_scenarios()
-    
+
     print("\n" + "="*80)
-    print("Demo complete! Check out test_scheduler.py for comprehensive tests.")
+    print("Demo complete!")
+    print("="*80)
+    print("\nNext steps:")
+    print("  1. Run all tests: pytest test_scheduler.py -v")
+    print("  2. Compare algorithms: pytest test_scheduler.py::TestSchedulerComparison -v -s")
+    print("  3. See performance summary: pytest test_scheduler.py::TestSchedulerComparison::test_performance_summary -v -s")
+    print("\nAvailable test scenarios:")
+    print("  - Simple: Basic conflicts")
+    print("  - AWS re:Invent: Realistic conference")
+    print("  - Complex: Many conflicts")
+    print("  - Heavy Conflict: Multiple overlapping must-attend sessions")
+    print("  - Travel Intensive: Location clustering critical")
+    print("  - Sparse Options: Limited time slot options")
+    print("  - Large Scale: 30 sessions for performance testing")
     print("="*80 + "\n")
 
 
