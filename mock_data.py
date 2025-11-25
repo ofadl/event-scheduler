@@ -3,7 +3,7 @@ Mock data generator for testing the session scheduler
 """
 
 from datetime import datetime, timedelta
-from scheduler import Location, TimeSlot, Session, Priority, TravelMode
+from scheduler import Location, TimeSlot, Session, SessionRequest, Priority, TravelMode
 from typing import List, Dict
 
 
@@ -55,166 +55,161 @@ class MockDataGenerator:
     def create_simple_scenario() -> tuple:
         """
         Create a simple test scenario with clear conflicts.
-        
+
         Returns:
-            (sessions, travel_times)
+            (session_requests, travel_times)
         """
         locations = MockDataGenerator.create_locations()
         travel_times = MockDataGenerator.create_travel_times(locations)
-        
+
         base_date = datetime(2025, 12, 1, 9, 0)  # Dec 1, 2025, 9 AM
-        
-        sessions = [
-            # Session 1: Must attend, two time options
-            Session(
-                id="keynote-1",
-                title="Opening Keynote",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(base_date, base_date + timedelta(hours=1), locations[0]),
-                    TimeSlot(base_date + timedelta(hours=2), base_date + timedelta(hours=3), locations[0]),
-                ]
-            ),
-            
-            # Session 2: Must attend, conflicts with first slot of Session 1
-            Session(
-                id="ai-workshop",
-                title="AI/ML Workshop",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(base_date, base_date + timedelta(hours=1), locations[1]),
-                ]
-            ),
-            
-            # Session 3: Optional, fits in a gap (with 5 min travel buffer)
-            Session(
-                id="networking",
-                title="Networking Break",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(base_date + timedelta(hours=3, minutes=10), base_date + timedelta(hours=3, minutes=40), locations[2]),
-                ]
-            ),
+
+        # Define sessions (conference schedule)
+        keynote_session = Session(
+            id="keynote-1",
+            title="Opening Keynote",
+            time_slots=[
+                TimeSlot(base_date, base_date + timedelta(hours=1), locations[0]),
+                TimeSlot(base_date + timedelta(hours=2), base_date + timedelta(hours=3), locations[0]),
+            ]
+        )
+
+        ai_workshop_session = Session(
+            id="ai-workshop",
+            title="AI/ML Workshop",
+            time_slots=[
+                TimeSlot(base_date, base_date + timedelta(hours=1), locations[1]),
+            ]
+        )
+
+        networking_session = Session(
+            id="networking",
+            title="Networking Break",
+            time_slots=[
+                TimeSlot(base_date + timedelta(hours=3, minutes=10), base_date + timedelta(hours=3, minutes=40), locations[2]),
+            ]
+        )
+
+        # Attendee's session requests with priorities
+        session_requests = [
+            SessionRequest(keynote_session, Priority.MUST_ATTEND),
+            SessionRequest(ai_workshop_session, Priority.MUST_ATTEND),
+            SessionRequest(networking_session, Priority.OPTIONAL),
         ]
-        
-        return sessions, travel_times
+
+        return session_requests, travel_times
     
     @staticmethod
     def create_aws_reinvent_scenario() -> tuple:
         """
         Create a realistic AWS re:Invent-style scenario.
-        
+
         Returns:
-            (sessions, travel_times)
+            (session_requests, travel_times)
         """
         locations = MockDataGenerator.create_locations()
         travel_times = MockDataGenerator.create_travel_times(locations)
-        
+
         day1 = datetime(2025, 12, 2, 8, 0)  # Dec 2, 2025
-        
-        sessions = [
-            # Keynote - must attend, single time
-            Session(
-                id="keynote-morning",
-                title="CEO Keynote: The Future of Cloud",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=9), day1.replace(hour=10, minute=30), locations[0]),
-                ]
-            ),
-            
-            # Popular session - must attend, multiple times
-            Session(
-                id="serverless-best-practices",
-                title="Serverless Best Practices",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[3]),
-                    TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[4]),
-                    TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[3]),
-                ]
-            ),
-            
-            # Another must-attend with limited slots
-            Session(
-                id="security-deep-dive",
-                title="Security Deep Dive",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[5]),
-                    TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[6]),
-                ]
-            ),
-            
-            # Optional sessions
-            Session(
-                id="containers-intro",
-                title="Introduction to Containers",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[4]),
-                    TimeSlot(day1.replace(hour=15), day1.replace(hour=16), locations[7]),
-                ]
-            ),
-            
-            Session(
-                id="machine-learning-101",
-                title="Machine Learning 101",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[8]),
-                    TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[9]),
-                ]
-            ),
-            
-            Session(
-                id="networking-lunch",
-                title="Networking Lunch",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=12), day1.replace(hour=13), locations[2]),
-                ]
-            ),
-            
-            # Afternoon keynote - must attend
-            Session(
-                id="keynote-afternoon",
-                title="Product Announcements",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=15), day1.replace(hour=16, minute=30), locations[0]),
-                ]
-            ),
-            
-            # Evening session - optional
-            Session(
-                id="happy-hour",
-                title="Sponsor Happy Hour",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=17), day1.replace(hour=18), locations[8]),
-                ]
-            ),
+
+        # Define sessions (conference schedule)
+        keynote_morning = Session(
+            id="keynote-morning",
+            title="CEO Keynote: The Future of Cloud",
+            time_slots=[
+                TimeSlot(day1.replace(hour=9), day1.replace(hour=10, minute=30), locations[0]),
+            ]
+        )
+
+        serverless_session = Session(
+            id="serverless-best-practices",
+            title="Serverless Best Practices",
+            time_slots=[
+                TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[3]),
+                TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[4]),
+                TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[3]),
+            ]
+        )
+
+        security_session = Session(
+            id="security-deep-dive",
+            title="Security Deep Dive",
+            time_slots=[
+                TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[5]),
+                TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[6]),
+            ]
+        )
+
+        containers_session = Session(
+            id="containers-intro",
+            title="Introduction to Containers",
+            time_slots=[
+                TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[4]),
+                TimeSlot(day1.replace(hour=15), day1.replace(hour=16), locations[7]),
+            ]
+        )
+
+        ml_session = Session(
+            id="machine-learning-101",
+            title="Machine Learning 101",
+            time_slots=[
+                TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[8]),
+                TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[9]),
+            ]
+        )
+
+        networking_lunch = Session(
+            id="networking-lunch",
+            title="Networking Lunch",
+            time_slots=[
+                TimeSlot(day1.replace(hour=12), day1.replace(hour=13), locations[2]),
+            ]
+        )
+
+        keynote_afternoon = Session(
+            id="keynote-afternoon",
+            title="Product Announcements",
+            time_slots=[
+                TimeSlot(day1.replace(hour=15), day1.replace(hour=16, minute=30), locations[0]),
+            ]
+        )
+
+        happy_hour = Session(
+            id="happy-hour",
+            title="Sponsor Happy Hour",
+            time_slots=[
+                TimeSlot(day1.replace(hour=17), day1.replace(hour=18), locations[8]),
+            ]
+        )
+
+        # Attendee's session requests with priorities
+        session_requests = [
+            SessionRequest(keynote_morning, Priority.MUST_ATTEND),
+            SessionRequest(serverless_session, Priority.MUST_ATTEND),
+            SessionRequest(security_session, Priority.MUST_ATTEND),
+            SessionRequest(containers_session, Priority.OPTIONAL),
+            SessionRequest(ml_session, Priority.OPTIONAL),
+            SessionRequest(networking_lunch, Priority.OPTIONAL),
+            SessionRequest(keynote_afternoon, Priority.MUST_ATTEND),
+            SessionRequest(happy_hour, Priority.OPTIONAL),
         ]
-        
-        return sessions, travel_times
+
+        return session_requests, travel_times
     
     @staticmethod
     def create_complex_scenario() -> tuple:
         """
         Create a complex scenario with many conflicts and constraints.
-        
+
         Returns:
-            (sessions, travel_times)
+            (session_requests, travel_times)
         """
         locations = MockDataGenerator.create_locations()
         travel_times = MockDataGenerator.create_travel_times(locations)
-        
+
         day1 = datetime(2025, 12, 3, 8, 0)
-        
-        sessions = []
-        
-        # Create 15 sessions with varying priorities and time slots
+
+        # Create sessions with varying priorities and time slots
         session_configs = [
             ("must-1", "Critical Session 1", Priority.MUST_ATTEND, [(9, 10), (14, 15)]),
             ("must-2", "Critical Session 2", Priority.MUST_ATTEND, [(9, 10), (11, 12)]),
@@ -230,7 +225,9 @@ class MockDataGenerator:
             ("opt-7", "Optional Session 7", Priority.OPTIONAL, [(15, 16)]),
             ("opt-8", "Optional Session 8", Priority.OPTIONAL, [(16, 17)]),
         ]
-        
+
+        session_requests = []
+
         for i, (sess_id, title, priority, time_configs) in enumerate(session_configs):
             time_slots = []
             for start_hour, end_hour in time_configs:
@@ -243,15 +240,15 @@ class MockDataGenerator:
                         location
                     )
                 )
-            
-            sessions.append(Session(
+
+            session = Session(
                 id=sess_id,
                 title=title,
-                priority=priority,
                 time_slots=time_slots
-            ))
+            )
+            session_requests.append(SessionRequest(session, priority))
 
-        return sessions, travel_times
+        return session_requests, travel_times
 
     @staticmethod
     def create_heavy_conflict_scenario() -> tuple:
@@ -264,97 +261,104 @@ class MockDataGenerator:
         - Greedy might make poor early choices
 
         Returns:
-            (sessions, travel_times)
+            (session_requests, travel_times)
         """
         locations = MockDataGenerator.create_locations()
         travel_times = MockDataGenerator.create_travel_times(locations)
 
         day1 = datetime(2025, 12, 4, 8, 0)
 
-        sessions = [
-            # 6 must-attend sessions, each with 3 time options
-            # All options overlap significantly, making greedy suboptimal
-            Session(
-                id="must-1",
-                title="Leadership Summit",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=9), day1.replace(hour=10), locations[0]),
-                    TimeSlot(day1.replace(hour=10), day1.replace(hour=11), locations[1]),
-                    TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[2]),
-                ]
-            ),
-            Session(
-                id="must-2",
-                title="Technical Architecture Review",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=9), day1.replace(hour=10), locations[3]),
-                    TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[4]),
-                    TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[5]),
-                ]
-            ),
-            Session(
-                id="must-3",
-                title="Strategy Session",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=10), day1.replace(hour=11), locations[6]),
-                    TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[7]),
-                    TimeSlot(day1.replace(hour=15), day1.replace(hour=16), locations[8]),
-                ]
-            ),
-            Session(
-                id="must-4",
-                title="Product Roadmap",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=9), day1.replace(hour=10), locations[8]),
-                    TimeSlot(day1.replace(hour=12), day1.replace(hour=13), locations[9]),
-                    TimeSlot(day1.replace(hour=15), day1.replace(hour=16), locations[0]),
-                ]
-            ),
-            Session(
-                id="must-5",
-                title="Security Briefing",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=10), day1.replace(hour=11), locations[3]),
-                    TimeSlot(day1.replace(hour=12), day1.replace(hour=13), locations[4]),
-                    TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[5]),
-                ]
-            ),
-            Session(
-                id="must-6",
-                title="Customer Feedback Review",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[1]),
-                    TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[2]),
-                    TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[3]),
-                ]
-            ),
-            # Optional sessions to fill gaps
-            Session(
-                id="opt-1",
-                title="Team Building Activity",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[6]),
-                    TimeSlot(day1.replace(hour=17), day1.replace(hour=18), locations[7]),
-                ]
-            ),
-            Session(
-                id="opt-2",
-                title="Innovation Showcase",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[8]),
-                ]
-            ),
+        # Define sessions (conference schedule)
+        leadership_session = Session(
+            id="must-1",
+            title="Leadership Summit",
+            time_slots=[
+                TimeSlot(day1.replace(hour=9), day1.replace(hour=10), locations[0]),
+                TimeSlot(day1.replace(hour=10), day1.replace(hour=11), locations[1]),
+                TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[2]),
+            ]
+        )
+
+        architecture_session = Session(
+            id="must-2",
+            title="Technical Architecture Review",
+            time_slots=[
+                TimeSlot(day1.replace(hour=9), day1.replace(hour=10), locations[3]),
+                TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[4]),
+                TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[5]),
+            ]
+        )
+
+        strategy_session = Session(
+            id="must-3",
+            title="Strategy Session",
+            time_slots=[
+                TimeSlot(day1.replace(hour=10), day1.replace(hour=11), locations[6]),
+                TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[7]),
+                TimeSlot(day1.replace(hour=15), day1.replace(hour=16), locations[8]),
+            ]
+        )
+
+        roadmap_session = Session(
+            id="must-4",
+            title="Product Roadmap",
+            time_slots=[
+                TimeSlot(day1.replace(hour=9), day1.replace(hour=10), locations[8]),
+                TimeSlot(day1.replace(hour=12), day1.replace(hour=13), locations[9]),
+                TimeSlot(day1.replace(hour=15), day1.replace(hour=16), locations[0]),
+            ]
+        )
+
+        security_session = Session(
+            id="must-5",
+            title="Security Briefing",
+            time_slots=[
+                TimeSlot(day1.replace(hour=10), day1.replace(hour=11), locations[3]),
+                TimeSlot(day1.replace(hour=12), day1.replace(hour=13), locations[4]),
+                TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[5]),
+            ]
+        )
+
+        feedback_session = Session(
+            id="must-6",
+            title="Customer Feedback Review",
+            time_slots=[
+                TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[1]),
+                TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[2]),
+                TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[3]),
+            ]
+        )
+
+        team_building_session = Session(
+            id="opt-1",
+            title="Team Building Activity",
+            time_slots=[
+                TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[6]),
+                TimeSlot(day1.replace(hour=17), day1.replace(hour=18), locations[7]),
+            ]
+        )
+
+        innovation_session = Session(
+            id="opt-2",
+            title="Innovation Showcase",
+            time_slots=[
+                TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[8]),
+            ]
+        )
+
+        # Attendee's session requests with priorities
+        session_requests = [
+            SessionRequest(leadership_session, Priority.MUST_ATTEND),
+            SessionRequest(architecture_session, Priority.MUST_ATTEND),
+            SessionRequest(strategy_session, Priority.MUST_ATTEND),
+            SessionRequest(roadmap_session, Priority.MUST_ATTEND),
+            SessionRequest(security_session, Priority.MUST_ATTEND),
+            SessionRequest(feedback_session, Priority.MUST_ATTEND),
+            SessionRequest(team_building_session, Priority.OPTIONAL),
+            SessionRequest(innovation_session, Priority.OPTIONAL),
         ]
 
-        return sessions, travel_times
+        return session_requests, travel_times
 
     @staticmethod
     def create_travel_intensive_scenario() -> tuple:
@@ -367,7 +371,7 @@ class MockDataGenerator:
         - Optimal algorithm must consider location clustering
 
         Returns:
-            (sessions, travel_times)
+            (session_requests, travel_times)
         """
         locations = MockDataGenerator.create_locations()
         travel_times = MockDataGenerator.create_travel_times(locations)
@@ -379,78 +383,81 @@ class MockDataGenerator:
         mandalay_locs = [locations[5], locations[6], locations[7]]
         aria_locs = [locations[8], locations[9]]
 
-        sessions = [
-            # Must-attend session at 9 AM in Venetian
-            Session(
-                id="must-1",
-                title="Morning Keynote",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=9), day1.replace(hour=10), venetian_locs[0]),
-                ]
-            ),
-            # Must-attend at 10 AM - options in all buildings (15 min travel from Venetian)
-            Session(
-                id="must-2",
-                title="Technical Workshop",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=10), day1.replace(hour=11), venetian_locs[3]),  # Same building, 5 min travel
-                    TimeSlot(day1.replace(hour=10), day1.replace(hour=11), mandalay_locs[0]),  # Different building, 15 min - conflicts!
-                    TimeSlot(day1.replace(hour=10, minute=30), day1.replace(hour=11, minute=30), aria_locs[0]),  # Different building, delayed
-                ]
-            ),
-            # Must-attend at 11 AM - clustering matters
-            Session(
-                id="must-3",
-                title="Product Demo",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=11), day1.replace(hour=12), venetian_locs[4]),  # Ideal if in Venetian
-                    TimeSlot(day1.replace(hour=11, minute=30), day1.replace(hour=12, minute=30), mandalay_locs[1]),
-                ]
-            ),
-            # Must-attend at 1 PM
-            Session(
-                id="must-4",
-                title="Strategy Meeting",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=13), day1.replace(hour=14), mandalay_locs[2]),
-                    TimeSlot(day1.replace(hour=13), day1.replace(hour=14), aria_locs[1]),
-                ]
-            ),
-            # Must-attend at 2 PM - travel from previous matters
-            Session(
-                id="must-5",
-                title="Customer Panel",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=14), day1.replace(hour=15), mandalay_locs[0]),  # Good if coming from Mandalay
-                    TimeSlot(day1.replace(hour=14, minute=20), day1.replace(hour=15, minute=20), venetian_locs[2]),  # Delayed option
-                ]
-            ),
-            # Optional sessions
-            Session(
-                id="opt-1",
-                title="Networking Break",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=12), day1.replace(hour=12, minute=30), venetian_locs[1]),
-                    TimeSlot(day1.replace(hour=12, minute=10), day1.replace(hour=12, minute=40), mandalay_locs[1]),
-                ]
-            ),
-            Session(
-                id="opt-2",
-                title="Tech Talk",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=15, minute=30), day1.replace(hour=16, minute=30), aria_locs[0]),
-                ]
-            ),
+        # Define sessions (conference schedule)
+        keynote_session = Session(
+            id="must-1",
+            title="Morning Keynote",
+            time_slots=[
+                TimeSlot(day1.replace(hour=9), day1.replace(hour=10), venetian_locs[0]),
+            ]
+        )
+
+        workshop_session = Session(
+            id="must-2",
+            title="Technical Workshop",
+            time_slots=[
+                TimeSlot(day1.replace(hour=10), day1.replace(hour=11), venetian_locs[3]),  # Same building, 5 min travel
+                TimeSlot(day1.replace(hour=10), day1.replace(hour=11), mandalay_locs[0]),  # Different building, 15 min - conflicts!
+                TimeSlot(day1.replace(hour=10, minute=30), day1.replace(hour=11, minute=30), aria_locs[0]),  # Different building, delayed
+            ]
+        )
+
+        demo_session = Session(
+            id="must-3",
+            title="Product Demo",
+            time_slots=[
+                TimeSlot(day1.replace(hour=11), day1.replace(hour=12), venetian_locs[4]),  # Ideal if in Venetian
+                TimeSlot(day1.replace(hour=11, minute=30), day1.replace(hour=12, minute=30), mandalay_locs[1]),
+            ]
+        )
+
+        strategy_session = Session(
+            id="must-4",
+            title="Strategy Meeting",
+            time_slots=[
+                TimeSlot(day1.replace(hour=13), day1.replace(hour=14), mandalay_locs[2]),
+                TimeSlot(day1.replace(hour=13), day1.replace(hour=14), aria_locs[1]),
+            ]
+        )
+
+        panel_session = Session(
+            id="must-5",
+            title="Customer Panel",
+            time_slots=[
+                TimeSlot(day1.replace(hour=14), day1.replace(hour=15), mandalay_locs[0]),  # Good if coming from Mandalay
+                TimeSlot(day1.replace(hour=14, minute=20), day1.replace(hour=15, minute=20), venetian_locs[2]),  # Delayed option
+            ]
+        )
+
+        networking_session = Session(
+            id="opt-1",
+            title="Networking Break",
+            time_slots=[
+                TimeSlot(day1.replace(hour=12), day1.replace(hour=12, minute=30), venetian_locs[1]),
+                TimeSlot(day1.replace(hour=12, minute=10), day1.replace(hour=12, minute=40), mandalay_locs[1]),
+            ]
+        )
+
+        talk_session = Session(
+            id="opt-2",
+            title="Tech Talk",
+            time_slots=[
+                TimeSlot(day1.replace(hour=15, minute=30), day1.replace(hour=16, minute=30), aria_locs[0]),
+            ]
+        )
+
+        # Attendee's session requests with priorities
+        session_requests = [
+            SessionRequest(keynote_session, Priority.MUST_ATTEND),
+            SessionRequest(workshop_session, Priority.MUST_ATTEND),
+            SessionRequest(demo_session, Priority.MUST_ATTEND),
+            SessionRequest(strategy_session, Priority.MUST_ATTEND),
+            SessionRequest(panel_session, Priority.MUST_ATTEND),
+            SessionRequest(networking_session, Priority.OPTIONAL),
+            SessionRequest(talk_session, Priority.OPTIONAL),
         ]
 
-        return sessions, travel_times
+        return session_requests, travel_times
 
     @staticmethod
     def create_sparse_options_scenario() -> tuple:
@@ -463,91 +470,94 @@ class MockDataGenerator:
         - Backtracking is essential to find feasible solutions
 
         Returns:
-            (sessions, travel_times)
+            (session_requests, travel_times)
         """
         locations = MockDataGenerator.create_locations()
         travel_times = MockDataGenerator.create_travel_times(locations)
 
         day1 = datetime(2025, 12, 6, 8, 0)
 
-        sessions = [
-            # Must-attend with single slot (very constrained)
-            Session(
-                id="must-1",
-                title="Board Meeting",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=9), day1.replace(hour=10, minute=30), locations[0]),
-                ]
-            ),
-            # Must-attend with 2 slots, one conflicts with must-1
-            Session(
-                id="must-2",
-                title="Legal Review",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=9, minute=30), day1.replace(hour=10, minute=30), locations[5]),  # Conflicts!
-                    TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[5]),  # Only good option
-                ]
-            ),
-            # Must-attend with single slot
-            Session(
-                id="must-3",
-                title="Financial Planning",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=12, minute=30), day1.replace(hour=13, minute=30), locations[1]),
-                ]
-            ),
-            # Must-attend with 2 slots
-            Session(
-                id="must-4",
-                title="Executive Briefing",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=11, minute=30), day1.replace(hour=12, minute=30), locations[6]),  # Conflicts with must-3 if travel time considered
-                    TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[2]),
-                ]
-            ),
-            # Must-attend with single slot
-            Session(
-                id="must-5",
-                title="Partner Meeting",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=15, minute=30), day1.replace(hour=16, minute=30), locations[7]),
-                ]
-            ),
-            # Must-attend with 2 slots, heavily constrained
-            Session(
-                id="must-6",
-                title="All-Hands",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=14, minute=30), day1.replace(hour=15, minute=30), locations[8]),  # Might conflict
-                    TimeSlot(day1.replace(hour=16, minute=45), day1.replace(hour=17, minute=45), locations[3]),
-                ]
-            ),
-            # Optional sessions with single slots
-            Session(
-                id="opt-1",
-                title="Lunch & Learn",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=13, minute=45), day1.replace(hour=14, minute=15), locations[4]),
-                ]
-            ),
-            Session(
-                id="opt-2",
-                title="Team Sync",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=10, minute=45), day1.replace(hour=11, minute=15), locations[9]),
-                ]
-            ),
+        # Define sessions (conference schedule)
+        board_session = Session(
+            id="must-1",
+            title="Board Meeting",
+            time_slots=[
+                TimeSlot(day1.replace(hour=9), day1.replace(hour=10, minute=30), locations[0]),
+            ]
+        )
+
+        legal_session = Session(
+            id="must-2",
+            title="Legal Review",
+            time_slots=[
+                TimeSlot(day1.replace(hour=9, minute=30), day1.replace(hour=10, minute=30), locations[5]),  # Conflicts!
+                TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[5]),  # Only good option
+            ]
+        )
+
+        financial_session = Session(
+            id="must-3",
+            title="Financial Planning",
+            time_slots=[
+                TimeSlot(day1.replace(hour=12, minute=30), day1.replace(hour=13, minute=30), locations[1]),
+            ]
+        )
+
+        briefing_session = Session(
+            id="must-4",
+            title="Executive Briefing",
+            time_slots=[
+                TimeSlot(day1.replace(hour=11, minute=30), day1.replace(hour=12, minute=30), locations[6]),  # Conflicts with must-3 if travel time considered
+                TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[2]),
+            ]
+        )
+
+        partner_session = Session(
+            id="must-5",
+            title="Partner Meeting",
+            time_slots=[
+                TimeSlot(day1.replace(hour=15, minute=30), day1.replace(hour=16, minute=30), locations[7]),
+            ]
+        )
+
+        allhands_session = Session(
+            id="must-6",
+            title="All-Hands",
+            time_slots=[
+                TimeSlot(day1.replace(hour=14, minute=30), day1.replace(hour=15, minute=30), locations[8]),  # Might conflict
+                TimeSlot(day1.replace(hour=16, minute=45), day1.replace(hour=17, minute=45), locations[3]),
+            ]
+        )
+
+        lunch_session = Session(
+            id="opt-1",
+            title="Lunch & Learn",
+            time_slots=[
+                TimeSlot(day1.replace(hour=13, minute=45), day1.replace(hour=14, minute=15), locations[4]),
+            ]
+        )
+
+        sync_session = Session(
+            id="opt-2",
+            title="Team Sync",
+            time_slots=[
+                TimeSlot(day1.replace(hour=10, minute=45), day1.replace(hour=11, minute=15), locations[9]),
+            ]
+        )
+
+        # Attendee's session requests with priorities
+        session_requests = [
+            SessionRequest(board_session, Priority.MUST_ATTEND),
+            SessionRequest(legal_session, Priority.MUST_ATTEND),
+            SessionRequest(financial_session, Priority.MUST_ATTEND),
+            SessionRequest(briefing_session, Priority.MUST_ATTEND),
+            SessionRequest(partner_session, Priority.MUST_ATTEND),
+            SessionRequest(allhands_session, Priority.MUST_ATTEND),
+            SessionRequest(lunch_session, Priority.OPTIONAL),
+            SessionRequest(sync_session, Priority.OPTIONAL),
         ]
 
-        return sessions, travel_times
+        return session_requests, travel_times
 
     @staticmethod
     def create_large_scale_scenario() -> tuple:
@@ -561,14 +571,14 @@ class MockDataGenerator:
         - Performance differences should be stark
 
         Returns:
-            (sessions, travel_times)
+            (session_requests, travel_times)
         """
         locations = MockDataGenerator.create_locations()
         travel_times = MockDataGenerator.create_travel_times(locations)
 
         day1 = datetime(2025, 12, 7, 8, 0)
 
-        sessions = []
+        session_requests = []
 
         # 10 must-attend sessions with varying complexity
         must_attend_configs = [
@@ -595,12 +605,12 @@ class MockDataGenerator:
                         location
                     )
                 )
-            sessions.append(Session(
+            session = Session(
                 id=sess_id,
                 title=title,
-                priority=Priority.MUST_ATTEND,
                 time_slots=time_slots
-            ))
+            )
+            session_requests.append(SessionRequest(session, Priority.MUST_ATTEND))
 
         # 20 optional sessions scattered throughout
         optional_configs = [
@@ -640,14 +650,14 @@ class MockDataGenerator:
                         location
                     )
                 )
-            sessions.append(Session(
+            session = Session(
                 id=sess_id,
                 title=title,
-                priority=Priority.OPTIONAL,
                 time_slots=time_slots
-            ))
+            )
+            session_requests.append(SessionRequest(session, Priority.OPTIONAL))
 
-        return sessions, travel_times
+        return session_requests, travel_times
 
     @staticmethod
     def create_multiple_optimal_solutions_scenario() -> tuple:
@@ -659,54 +669,56 @@ class MockDataGenerator:
         the same number of must-attend sessions, but in different time slots.
 
         Returns:
-            (sessions, travel_times)
+            (session_requests, travel_times)
         """
         locations = MockDataGenerator.create_locations()
         travel_times = MockDataGenerator.create_travel_times(locations)
 
         day1 = datetime(2025, 12, 8, 8, 0)
 
-        sessions = [
-            # Session A: Must-attend with 2 equally good options
-            Session(
-                id="must-a",
-                title="Session A",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=9), day1.replace(hour=10), locations[0]),
-                    TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[1]),
-                ]
-            ),
-            # Session B: Must-attend with 2 equally good options
-            Session(
-                id="must-b",
-                title="Session B",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=10), day1.replace(hour=11), locations[2]),
-                    TimeSlot(day1.replace(hour=15), day1.replace(hour=16), locations[3]),
-                ]
-            ),
-            # Session C: Must-attend with 2 equally good options
-            Session(
-                id="must-c",
-                title="Session C",
-                priority=Priority.MUST_ATTEND,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[4]),
-                    TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[5]),
-                ]
-            ),
-            # Optional session that fits in multiple gaps
-            Session(
-                id="opt-1",
-                title="Optional Workshop",
-                priority=Priority.OPTIONAL,
-                time_slots=[
-                    TimeSlot(day1.replace(hour=12), day1.replace(hour=13), locations[6]),
-                    TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[7]),
-                ]
-            ),
+        # Define sessions (conference schedule)
+        session_a = Session(
+            id="must-a",
+            title="Session A",
+            time_slots=[
+                TimeSlot(day1.replace(hour=9), day1.replace(hour=10), locations[0]),
+                TimeSlot(day1.replace(hour=14), day1.replace(hour=15), locations[1]),
+            ]
+        )
+
+        session_b = Session(
+            id="must-b",
+            title="Session B",
+            time_slots=[
+                TimeSlot(day1.replace(hour=10), day1.replace(hour=11), locations[2]),
+                TimeSlot(day1.replace(hour=15), day1.replace(hour=16), locations[3]),
+            ]
+        )
+
+        session_c = Session(
+            id="must-c",
+            title="Session C",
+            time_slots=[
+                TimeSlot(day1.replace(hour=11), day1.replace(hour=12), locations[4]),
+                TimeSlot(day1.replace(hour=16), day1.replace(hour=17), locations[5]),
+            ]
+        )
+
+        workshop_session = Session(
+            id="opt-1",
+            title="Optional Workshop",
+            time_slots=[
+                TimeSlot(day1.replace(hour=12), day1.replace(hour=13), locations[6]),
+                TimeSlot(day1.replace(hour=13), day1.replace(hour=14), locations[7]),
+            ]
+        )
+
+        # Attendee's session requests with priorities
+        session_requests = [
+            SessionRequest(session_a, Priority.MUST_ATTEND),
+            SessionRequest(session_b, Priority.MUST_ATTEND),
+            SessionRequest(session_c, Priority.MUST_ATTEND),
+            SessionRequest(workshop_session, Priority.OPTIONAL),
         ]
 
-        return sessions, travel_times
+        return session_requests, travel_times

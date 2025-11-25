@@ -66,11 +66,20 @@ class Session:
     """An event session with multiple possible time slots"""
     id: str
     title: str
-    priority: Priority
     time_slots: List[TimeSlot]
-    
+
     def __hash__(self):
         return hash(self.id)
+
+
+@dataclass
+class SessionRequest:
+    """An attendee's request to attend a session with a specific priority"""
+    session: Session
+    priority: Priority
+
+    def __hash__(self):
+        return hash(self.session.id)
 
 
 @dataclass
@@ -113,11 +122,17 @@ class Schedule:
         reverse_key = (loc2.id, loc1.id)
         return travel_times.get(key, travel_times.get(reverse_key, 0))
     
-    def count_by_priority(self) -> Dict[Priority, int]:
-        """Count sessions by priority"""
+    def count_by_priority(self, session_priorities: Dict[str, Priority]) -> Dict[Priority, int]:
+        """
+        Count sessions by priority.
+
+        Args:
+            session_priorities: Dict mapping session.id -> Priority
+        """
         counts = {Priority.MUST_ATTEND: 0, Priority.OPTIONAL: 0}
         for entry in self.entries:
-            counts[entry.session.priority] += 1
+            priority = session_priorities.get(entry.session.id, Priority.OPTIONAL)
+            counts[priority] += 1
         return counts
 
 
@@ -126,21 +141,24 @@ class SessionScheduler:
     Optimizes session scheduling to maximize attendance.
     Priority: Maximize must-attend sessions first, then optional sessions.
     """
-    
-    def __init__(self, sessions: List[Session], travel_times: Dict[tuple, int]):
+
+    def __init__(self, session_requests: List[SessionRequest], travel_times: Dict[tuple, int]):
         """
         Initialize scheduler.
-        
+
         Args:
-            sessions: List of sessions to schedule
+            session_requests: List of session requests (session + priority)
             travel_times: Dict mapping (location_id1, location_id2) -> minutes
         """
-        self.sessions = sessions
+        self.session_requests = session_requests
         self.travel_times = travel_times
-        
+
+        # Create priority mapping from session ID to priority
+        self.session_priorities = {req.session.id: req.priority for req in session_requests}
+
         # Separate by priority
-        self.must_attend = [s for s in sessions if s.priority == Priority.MUST_ATTEND]
-        self.optional = [s for s in sessions if s.priority == Priority.OPTIONAL]
+        self.must_attend = [req.session for req in session_requests if req.priority == Priority.MUST_ATTEND]
+        self.optional = [req.session for req in session_requests if req.priority == Priority.OPTIONAL]
     
     def optimize_schedule(self) -> Schedule:
         """
@@ -185,13 +203,13 @@ class SessionScheduler:
     
     def get_statistics(self, schedule: Schedule) -> Dict:
         """Get statistics about the schedule"""
-        counts = schedule.count_by_priority()
-        total_sessions = len(self.sessions)
+        counts = schedule.count_by_priority(self.session_priorities)
+        total_sessions = len(self.session_requests)
         scheduled_sessions = len(schedule.entries)
-        
+
         must_attend_total = len(self.must_attend)
         must_attend_scheduled = counts[Priority.MUST_ATTEND]
-        
+
         optional_total = len(self.optional)
         optional_scheduled = counts[Priority.OPTIONAL]
         
@@ -229,18 +247,23 @@ class BacktrackingScheduler:
     Space Complexity: O(n) for recursion stack
     """
 
-    def __init__(self, sessions: List[Session], travel_times: Dict[tuple, int]):
+    def __init__(self, session_requests: List[SessionRequest], travel_times: Dict[tuple, int]):
         """
         Initialize backtracking scheduler.
 
         Args:
-            sessions: List of sessions to schedule
+            session_requests: List of session requests (session + priority)
             travel_times: Dict mapping (location_id1, location_id2) -> minutes
         """
-        self.sessions = sessions
+        self.session_requests = session_requests
         self.travel_times = travel_times
-        self.must_attend = [s for s in sessions if s.priority == Priority.MUST_ATTEND]
-        self.optional = [s for s in sessions if s.priority == Priority.OPTIONAL]
+
+        # Create priority mapping
+        self.session_priorities = {req.session.id: req.priority for req in session_requests}
+
+        # Separate by priority
+        self.must_attend = [req.session for req in session_requests if req.priority == Priority.MUST_ATTEND]
+        self.optional = [req.session for req in session_requests if req.priority == Priority.OPTIONAL]
         self.best_schedule = None
         self.nodes_explored = 0
 
@@ -310,8 +333,8 @@ class BacktrackingScheduler:
         if schedule2 is None or len(schedule2.entries) == 0:
             return len(schedule1.entries) > 0
 
-        counts1 = schedule1.count_by_priority()
-        counts2 = schedule2.count_by_priority()
+        counts1 = schedule1.count_by_priority(self.session_priorities)
+        counts2 = schedule2.count_by_priority(self.session_priorities)
 
         # First priority: must-attend sessions
         if counts1[Priority.MUST_ATTEND] != counts2[Priority.MUST_ATTEND]:
@@ -322,8 +345,8 @@ class BacktrackingScheduler:
 
     def get_statistics(self, schedule: Schedule) -> Dict:
         """Get statistics about the schedule"""
-        counts = schedule.count_by_priority()
-        total_sessions = len(self.sessions)
+        counts = schedule.count_by_priority(self.session_priorities)
+        total_sessions = len(self.session_requests)
         scheduled_sessions = len(schedule.entries)
 
         must_attend_total = len(self.must_attend)
@@ -367,18 +390,23 @@ class BranchAndBoundScheduler:
     Space Complexity: O(n) for recursion stack
     """
 
-    def __init__(self, sessions: List[Session], travel_times: Dict[tuple, int]):
+    def __init__(self, session_requests: List[SessionRequest], travel_times: Dict[tuple, int]):
         """
         Initialize branch and bound scheduler.
 
         Args:
-            sessions: List of sessions to schedule
+            session_requests: List of session requests (session + priority)
             travel_times: Dict mapping (location_id1, location_id2) -> minutes
         """
-        self.sessions = sessions
+        self.session_requests = session_requests
         self.travel_times = travel_times
-        self.must_attend = [s for s in sessions if s.priority == Priority.MUST_ATTEND]
-        self.optional = [s for s in sessions if s.priority == Priority.OPTIONAL]
+
+        # Create priority mapping
+        self.session_priorities = {req.session.id: req.priority for req in session_requests}
+
+        # Separate by priority
+        self.must_attend = [req.session for req in session_requests if req.priority == Priority.MUST_ATTEND]
+        self.optional = [req.session for req in session_requests if req.priority == Priority.OPTIONAL]
         self.best_schedule = None
         self.nodes_explored = 0
         self.branches_pruned = 0
@@ -456,11 +484,11 @@ class BranchAndBoundScheduler:
         Returns:
             Dict with 'must_attend' and 'total' upper bounds
         """
-        current_counts = current_schedule.count_by_priority()
+        current_counts = current_schedule.count_by_priority(self.session_priorities)
 
         # Count remaining sessions by priority
         remaining_must = sum(1 for i in range(start_index, len(sessions))
-                            if sessions[i].priority == Priority.MUST_ATTEND)
+                            if self.session_priorities.get(sessions[i].id) == Priority.MUST_ATTEND)
         remaining_total = len(sessions) - start_index
 
         return {
@@ -473,7 +501,7 @@ class BranchAndBoundScheduler:
         if self.best_schedule is None or len(self.best_schedule.entries) == 0:
             return True
 
-        best_counts = self.best_schedule.count_by_priority()
+        best_counts = self.best_schedule.count_by_priority(self.session_priorities)
 
         # Can we get more must-attend sessions?
         if upper_bound['must_attend'] > best_counts[Priority.MUST_ATTEND]:
@@ -490,8 +518,8 @@ class BranchAndBoundScheduler:
         if schedule2 is None or len(schedule2.entries) == 0:
             return len(schedule1.entries) > 0
 
-        counts1 = schedule1.count_by_priority()
-        counts2 = schedule2.count_by_priority()
+        counts1 = schedule1.count_by_priority(self.session_priorities)
+        counts2 = schedule2.count_by_priority(self.session_priorities)
 
         # First priority: must-attend sessions
         if counts1[Priority.MUST_ATTEND] != counts2[Priority.MUST_ATTEND]:
@@ -502,8 +530,8 @@ class BranchAndBoundScheduler:
 
     def get_statistics(self, schedule: Schedule) -> Dict:
         """Get statistics about the schedule"""
-        counts = schedule.count_by_priority()
-        total_sessions = len(self.sessions)
+        counts = schedule.count_by_priority(self.session_priorities)
+        total_sessions = len(self.session_requests)
         scheduled_sessions = len(schedule.entries)
 
         must_attend_total = len(self.must_attend)
@@ -550,18 +578,26 @@ class ILPScheduler:
     Space Complexity: O(n * m) for variables
     """
 
-    def __init__(self, sessions: List[Session], travel_times: Dict[tuple, int]):
+    def __init__(self, session_requests: List[SessionRequest], travel_times: Dict[tuple, int]):
         """
         Initialize ILP scheduler.
 
         Args:
-            sessions: List of sessions to schedule
+            session_requests: List of session requests (session + priority)
             travel_times: Dict mapping (location_id1, location_id2) -> minutes
         """
-        self.sessions = sessions
+        self.session_requests = session_requests
         self.travel_times = travel_times
-        self.must_attend = [s for s in sessions if s.priority == Priority.MUST_ATTEND]
-        self.optional = [s for s in sessions if s.priority == Priority.OPTIONAL]
+
+        # Create priority mapping
+        self.session_priorities = {req.session.id: req.priority for req in session_requests}
+
+        # Separate by priority
+        self.must_attend = [req.session for req in session_requests if req.priority == Priority.MUST_ATTEND]
+        self.optional = [req.session for req in session_requests if req.priority == Priority.OPTIONAL]
+
+        # All sessions for iteration
+        self.sessions = [req.session for req in session_requests]
 
         try:
             import pulp
@@ -594,7 +630,7 @@ class ILPScheduler:
         # Objective: Maximize must-attend sessions (weight 1000) + optional sessions (weight 1)
         # This ensures must-attend is prioritized
         objective = self.pulp.lpSum([
-            x[(session.id, slot_idx)] * (1000 if session.priority == Priority.MUST_ATTEND else 1)
+            x[(session.id, slot_idx)] * (1000 if self.session_priorities.get(session.id) == Priority.MUST_ATTEND else 1)
             for session in self.sessions
             for slot_idx in range(len(session.time_slots))
         ])
@@ -648,8 +684,8 @@ class ILPScheduler:
 
     def get_statistics(self, schedule: Schedule) -> Dict:
         """Get statistics about the schedule"""
-        counts = schedule.count_by_priority()
-        total_sessions = len(self.sessions)
+        counts = schedule.count_by_priority(self.session_priorities)
+        total_sessions = len(self.session_requests)
         scheduled_sessions = len(schedule.entries)
 
         must_attend_total = len(self.must_attend)

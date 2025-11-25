@@ -7,24 +7,27 @@ from mock_data import MockDataGenerator
 from datetime import datetime
 
 
-def print_schedule(schedule, title="Schedule"):
+def print_schedule(schedule, session_priorities, title="Schedule"):
     """Pretty print a schedule"""
+    from scheduler import Priority
+
     print(f"\n{'='*80}")
     print(f"{title}")
     print(f"{'='*80}\n")
-    
+
     if not schedule.entries:
         print("No sessions scheduled.")
         return
-    
+
     # Sort by start time
     sorted_entries = sorted(schedule.entries, key=lambda e: e.time_slot.start_time)
-    
+
     for entry in sorted_entries:
         session = entry.session
         slot = entry.time_slot
-        priority_icon = "⭐" if session.priority.name == "MUST_ATTEND" else "○"
-        
+        priority = session_priorities.get(session.id, Priority.OPTIONAL)
+        priority_icon = "⭐" if priority.name == "MUST_ATTEND" else "○"
+
         print(f"{priority_icon} {session.title}")
         print(f"   Time: {slot.start_time.strftime('%I:%M %p')} - {slot.end_time.strftime('%I:%M %p')}")
         print(f"   Location: {slot.location.name} ({slot.location.building})")
@@ -57,33 +60,37 @@ def print_statistics(stats):
 
 def demo_simple_scenario():
     """Demo with simple scenario"""
+    from scheduler import Priority
+
     print("\n" + "="*80)
     print("DEMO 1: Simple Scenario")
     print("="*80)
     print("\nThis scenario has 2 must-attend sessions with time conflicts,")
     print("and 1 optional session that fits in a gap.")
-    
-    sessions, travel_times = MockDataGenerator.create_simple_scenario()
-    
+
+    session_requests, travel_times = MockDataGenerator.create_simple_scenario()
+
     # Show available sessions
     print("\nAvailable Sessions:")
-    for session in sessions:
-        priority = "Must-Attend" if session.priority.name == "MUST_ATTEND" else "Optional"
-        print(f"  - {session.title} ({priority})")
-        print(f"    Time slot options: {len(session.time_slots)}")
-    
+    for req in session_requests:
+        priority_str = "Must-Attend" if req.priority.name == "MUST_ATTEND" else "Optional"
+        print(f"  - {req.session.title} ({priority_str})")
+        print(f"    Time slot options: {len(req.session.time_slots)}")
+
     # Run scheduler
-    scheduler = SessionScheduler(sessions, travel_times)
+    scheduler = SessionScheduler(session_requests, travel_times)
     schedule = scheduler.optimize_schedule()
-    
+
     # Print results
-    print_schedule(schedule, "Optimized Schedule")
+    print_schedule(schedule, scheduler.session_priorities, "Optimized Schedule")
     stats = scheduler.get_statistics(schedule)
     print_statistics(stats)
 
 
 def demo_aws_reinvent_scenario():
     """Demo with AWS re:Invent-style scenario"""
+    from scheduler import Priority
+
     print("\n" + "="*80)
     print("DEMO 2: AWS re:Invent Scenario")
     print("="*80)
@@ -92,62 +99,64 @@ def demo_aws_reinvent_scenario():
     print("  - Popular sessions (must-attend, multiple times)")
     print("  - Optional workshops and networking")
     print("  - Multiple venues requiring travel time")
-    
-    sessions, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
-    
+
+    session_requests, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
+
     # Show session breakdown
-    must_attend = [s for s in sessions if s.priority.name == "MUST_ATTEND"]
-    optional = [s for s in sessions if s.priority.name == "OPTIONAL"]
-    
-    print(f"\nTotal sessions: {len(sessions)}")
+    must_attend = [req for req in session_requests if req.priority.name == "MUST_ATTEND"]
+    optional = [req for req in session_requests if req.priority.name == "OPTIONAL"]
+
+    print(f"\nTotal sessions: {len(session_requests)}")
     print(f"  Must-attend: {len(must_attend)}")
     print(f"  Optional: {len(optional)}")
-    
+
     # Run scheduler
-    scheduler = SessionScheduler(sessions, travel_times)
+    scheduler = SessionScheduler(session_requests, travel_times)
     schedule = scheduler.optimize_schedule()
-    
+
     # Print results
-    print_schedule(schedule, "Your Optimized Conference Schedule")
+    print_schedule(schedule, scheduler.session_priorities, "Your Optimized Conference Schedule")
     stats = scheduler.get_statistics(schedule)
     print_statistics(stats)
-    
+
     # Show what was missed
     scheduled_ids = {e.session.id for e in schedule.entries}
-    missed_sessions = [s for s in sessions if s.id not in scheduled_ids]
-    
-    if missed_sessions:
+    missed_requests = [req for req in session_requests if req.session.id not in scheduled_ids]
+
+    if missed_requests:
         print(f"{'='*80}")
         print("Missed Sessions (couldn't fit in schedule):")
         print(f"{'='*80}\n")
-        for session in missed_sessions:
-            priority = "⭐ Must-Attend" if session.priority.name == "MUST_ATTEND" else "○ Optional"
-            print(f"  {priority}: {session.title}")
+        for req in missed_requests:
+            priority_str = "⭐ Must-Attend" if req.priority.name == "MUST_ATTEND" else "○ Optional"
+            print(f"  {priority_str}: {req.session.title}")
 
 
 def demo_complex_scenario():
     """Demo with complex scenario"""
+    from scheduler import Priority
+
     print("\n" + "="*80)
     print("DEMO 3: Complex Scenario with Many Conflicts")
     print("="*80)
     print("\nThis scenario has 13 sessions with overlapping times,")
     print("multiple venues, and heavy constraints.")
-    
-    sessions, travel_times = MockDataGenerator.create_complex_scenario()
-    
-    must_attend = [s for s in sessions if s.priority.name == "MUST_ATTEND"]
-    optional = [s for s in sessions if s.priority.name == "OPTIONAL"]
-    
-    print(f"\nTotal sessions: {len(sessions)}")
+
+    session_requests, travel_times = MockDataGenerator.create_complex_scenario()
+
+    must_attend = [req for req in session_requests if req.priority.name == "MUST_ATTEND"]
+    optional = [req for req in session_requests if req.priority.name == "OPTIONAL"]
+
+    print(f"\nTotal sessions: {len(session_requests)}")
     print(f"  Must-attend: {len(must_attend)}")
     print(f"  Optional: {len(optional)}")
-    
+
     # Run scheduler
-    scheduler = SessionScheduler(sessions, travel_times)
+    scheduler = SessionScheduler(session_requests, travel_times)
     schedule = scheduler.optimize_schedule()
-    
+
     # Print results
-    print_schedule(schedule, "Optimized Schedule (Complex Scenario)")
+    print_schedule(schedule, scheduler.session_priorities, "Optimized Schedule (Complex Scenario)")
     stats = scheduler.get_statistics(schedule)
     print_statistics(stats)
 
@@ -167,17 +176,17 @@ def compare_scenarios():
         ("Sparse Options", MockDataGenerator.create_sparse_options_scenario()),
         ("Large Scale", MockDataGenerator.create_large_scale_scenario()),
     ]
-    
+
     results = []
-    for name, (sessions, travel_times) in scenarios:
-        scheduler = SessionScheduler(sessions, travel_times)
+    for name, (session_requests, travel_times) in scenarios:
+        scheduler = SessionScheduler(session_requests, travel_times)
         schedule = scheduler.optimize_schedule()
         stats = scheduler.get_statistics(schedule)
         results.append((name, stats))
-    
+
     print(f"\n{'Scenario':<20} {'Total':<8} {'Scheduled':<12} {'Must-Att %':<12} {'Optional %':<12}")
     print("-" * 80)
-    
+
     for name, stats in results:
         print(f"{name:<20} {stats['total_sessions']:<8} "
               f"{stats['scheduled_sessions']:<12} "

@@ -7,7 +7,7 @@ import pytest
 import time
 from datetime import datetime, timedelta
 from scheduler import (
-    Location, TimeSlot, Session, Schedule, ScheduleEntry,
+    Location, TimeSlot, Session, SessionRequest, Schedule, ScheduleEntry,
     Priority, SessionScheduler, BacktrackingScheduler,
     BranchAndBoundScheduler, ILPScheduler
 )
@@ -140,32 +140,29 @@ class TestSession:
             datetime(2025, 12, 1, 10, 0),
             location
         )
-        
+
         session = Session(
             id="sess1",
             title="Test Session",
-            priority=Priority.MUST_ATTEND,
             time_slots=[time_slot]
         )
-        
+
         assert session.id == "sess1"
         assert session.title == "Test Session"
-        assert session.priority == Priority.MUST_ATTEND
         assert len(session.time_slots) == 1
-    
+
     def test_session_with_multiple_time_slots(self, location):
         time_slots = [
             TimeSlot(datetime(2025, 12, 1, 9, 0), datetime(2025, 12, 1, 10, 0), location),
             TimeSlot(datetime(2025, 12, 1, 14, 0), datetime(2025, 12, 1, 15, 0), location),
         ]
-        
+
         session = Session(
             id="sess1",
             title="Test Session",
-            priority=Priority.OPTIONAL,
             time_slots=time_slots
         )
-        
+
         assert len(session.time_slots) == 2
 
 
@@ -187,14 +184,15 @@ class TestSchedule:
             datetime(2025, 12, 1, 12, 0),
             other_location
         )
-        
-        session1 = Session("sess1", "Session 1", Priority.MUST_ATTEND, [time_slot1])
-        session2 = Session("sess2", "Session 2", Priority.OPTIONAL, [time_slot2])
-        
+
+        session1 = Session("sess1", "Session 1", [time_slot1])
+        session2 = Session("sess2", "Session 2", [time_slot2])
+
         schedule = Schedule()
         travel_times = {("loc1", "loc2"): 15, ("loc2", "loc1"): 15}
-        
-        return schedule, session1, session2, time_slot1, time_slot2, travel_times
+        session_priorities = {"sess1": Priority.MUST_ATTEND, "sess2": Priority.OPTIONAL}
+
+        return schedule, session1, session2, time_slot1, time_slot2, travel_times, session_priorities
     
     def test_empty_schedule(self):
         schedule = Schedule()
@@ -202,28 +200,28 @@ class TestSchedule:
         assert len(schedule.get_scheduled_sessions()) == 0
     
     def test_add_entry(self, setup_schedule):
-        schedule, session1, session2, time_slot1, time_slot2, _ = setup_schedule
-        
+        schedule, session1, session2, time_slot1, time_slot2, _, _ = setup_schedule
+
         schedule.add_entry(session1, time_slot1)
-        
+
         assert len(schedule.entries) == 1
         assert session1 in schedule.get_scheduled_sessions()
-    
+
     def test_count_by_priority(self, setup_schedule):
-        schedule, session1, session2, time_slot1, time_slot2, _ = setup_schedule
-        
+        schedule, session1, session2, time_slot1, time_slot2, _, session_priorities = setup_schedule
+
         schedule.add_entry(session1, time_slot1)
         schedule.add_entry(session2, time_slot2)
-        
-        counts = schedule.count_by_priority()
+
+        counts = schedule.count_by_priority(session_priorities)
         assert counts[Priority.MUST_ATTEND] == 1
         assert counts[Priority.OPTIONAL] == 1
-    
+
     def test_has_no_conflict_with_gap(self, setup_schedule):
-        schedule, session1, _, time_slot1, time_slot2, travel_times = setup_schedule
-        
+        schedule, session1, _, time_slot1, time_slot2, travel_times, _ = setup_schedule
+
         schedule.add_entry(session1, time_slot1)
-        
+
         # time_slot2 is at 11 AM, 1 hour after time_slot1 ends
         # Even with 15 min travel time, should not conflict
         assert not schedule.has_conflict(time_slot2, travel_times)
@@ -231,7 +229,7 @@ class TestSchedule:
     def test_has_conflict_insufficient_travel_time(self):
         location1 = Location("loc1", "Room A", "Building 1")
         location2 = Location("loc2", "Room B", "Building 2")
-        
+
         time_slot1 = TimeSlot(
             datetime(2025, 12, 1, 9, 0),
             datetime(2025, 12, 1, 10, 0),
@@ -242,14 +240,14 @@ class TestSchedule:
             datetime(2025, 12, 1, 11, 0),
             location2
         )
-        
-        session1 = Session("sess1", "Session 1", Priority.MUST_ATTEND, [time_slot1])
-        
+
+        session1 = Session("sess1", "Session 1", [time_slot1])
+
         schedule = Schedule()
         schedule.add_entry(session1, time_slot1)
-        
+
         travel_times = {("loc1", "loc2"): 15}
-        
+
         # Should conflict because need 15 min travel but only have 5 min
         assert schedule.has_conflict(time_slot2, travel_times)
 
@@ -259,16 +257,16 @@ class TestSessionScheduler:
     
     def test_simple_scenario(self):
         """Test with simple scenario from mock data"""
-        sessions, travel_times = MockDataGenerator.create_simple_scenario()
-        
-        scheduler = SessionScheduler(sessions, travel_times)
+        session_requests, travel_times = MockDataGenerator.create_simple_scenario()
+
+        scheduler = SessionScheduler(session_requests, travel_times)
         schedule = scheduler.optimize_schedule()
-        
+
         # Should schedule all 3 sessions (2 must-attend + 1 optional)
         assert len(schedule.entries) == 3
-        
+
         # Verify all must-attend sessions are scheduled
-        counts = schedule.count_by_priority()
+        counts = schedule.count_by_priority(scheduler.session_priorities)
         assert counts[Priority.MUST_ATTEND] == 2
         assert counts[Priority.OPTIONAL] == 1
     
@@ -366,17 +364,20 @@ class TestSessionScheduler:
     
     def test_single_session(self):
         """Test with single session"""
+        from scheduler import SessionRequest
+
         location = Location("loc1", "Room A", "Building 1")
         time_slot = TimeSlot(
             datetime(2025, 12, 1, 9, 0),
             datetime(2025, 12, 1, 10, 0),
             location
         )
-        session = Session("sess1", "Session 1", Priority.MUST_ATTEND, [time_slot])
-        
-        scheduler = SessionScheduler([session], {})
+        session = Session("sess1", "Session 1", [time_slot])
+        session_request = SessionRequest(session, Priority.MUST_ATTEND)
+
+        scheduler = SessionScheduler([session_request], {})
         schedule = scheduler.optimize_schedule()
-        
+
         assert len(schedule.entries) == 1
         assert session in schedule.get_scheduled_sessions()
 
@@ -421,33 +422,33 @@ class TestMockDataGenerator:
             assert max(same_building_times) < min(diff_building_times)
     
     def test_simple_scenario_validity(self):
-        sessions, travel_times = MockDataGenerator.create_simple_scenario()
-        
-        assert len(sessions) > 0
+        session_requests, travel_times = MockDataGenerator.create_simple_scenario()
+
+        assert len(session_requests) > 0
         assert len(travel_times) > 0
-        
+
         # All sessions should have at least one time slot
-        assert all(len(s.time_slots) > 0 for s in sessions)
-    
+        assert all(len(req.session.time_slots) > 0 for req in session_requests)
+
     def test_aws_reinvent_scenario_validity(self):
-        sessions, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
-        
-        assert len(sessions) >= 5  # Should have several sessions
-        
+        session_requests, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
+
+        assert len(session_requests) >= 5  # Should have several sessions
+
         # Should have both must-attend and optional sessions
-        must_attend = [s for s in sessions if s.priority == Priority.MUST_ATTEND]
-        optional = [s for s in sessions if s.priority == Priority.OPTIONAL]
-        
+        must_attend = [req for req in session_requests if req.priority == Priority.MUST_ATTEND]
+        optional = [req for req in session_requests if req.priority == Priority.OPTIONAL]
+
         assert len(must_attend) > 0
         assert len(optional) > 0
-    
+
     def test_complex_scenario_validity(self):
-        sessions, travel_times = MockDataGenerator.create_complex_scenario()
-        
-        assert len(sessions) >= 10  # Complex scenario should have many sessions
-        
+        session_requests, travel_times = MockDataGenerator.create_complex_scenario()
+
+        assert len(session_requests) >= 10  # Complex scenario should have many sessions
+
         # Should have variety of time slot counts
-        slot_counts = [len(s.time_slots) for s in sessions]
+        slot_counts = [len(req.session.time_slots) for req in session_requests]
         assert min(slot_counts) >= 1
         assert max(slot_counts) >= 2
 
@@ -459,19 +460,24 @@ class TestEdgeCases:
         """Multiple sessions at exact same time but different locations"""
         loc1 = Location("loc1", "Room A", "Building 1")
         loc2 = Location("loc2", "Room B", "Building 2")
-        
+
         start = datetime(2025, 12, 1, 9, 0)
         end = datetime(2025, 12, 1, 10, 0)
-        
+
         slot1 = TimeSlot(start, end, loc1)
         slot2 = TimeSlot(start, end, loc2)
-        
-        session1 = Session("sess1", "Session 1", Priority.MUST_ATTEND, [slot1])
-        session2 = Session("sess2", "Session 2", Priority.MUST_ATTEND, [slot2])
-        
-        scheduler = SessionScheduler([session1, session2], {})
+
+        session1 = Session("sess1", "Session 1", [slot1])
+        session2 = Session("sess2", "Session 2", [slot2])
+
+        session_requests = [
+            SessionRequest(session1, Priority.MUST_ATTEND),
+            SessionRequest(session2, Priority.MUST_ATTEND)
+        ]
+
+        scheduler = SessionScheduler(session_requests, {})
         schedule = scheduler.optimize_schedule()
-        
+
         # Can only schedule one
         assert len(schedule.entries) == 1
     
@@ -492,7 +498,7 @@ class TestEdgeCases:
         """Test with unreasonably long travel times"""
         location1 = Location("loc1", "Room A", "Building 1")
         location2 = Location("loc2", "Room B", "Building 2")
-        
+
         # Two sessions 2 hours apart
         slot1 = TimeSlot(
             datetime(2025, 12, 1, 9, 0),
@@ -504,16 +510,21 @@ class TestEdgeCases:
             datetime(2025, 12, 1, 13, 0),
             location2
         )
-        
-        session1 = Session("sess1", "Session 1", Priority.MUST_ATTEND, [slot1])
-        session2 = Session("sess2", "Session 2", Priority.MUST_ATTEND, [slot2])
-        
+
+        session1 = Session("sess1", "Session 1", [slot1])
+        session2 = Session("sess2", "Session 2", [slot2])
+
+        session_requests = [
+            SessionRequest(session1, Priority.MUST_ATTEND),
+            SessionRequest(session2, Priority.MUST_ATTEND)
+        ]
+
         # 3 hour travel time (unrealistic but tests the logic)
         travel_times = {("loc1", "loc2"): 180}
-        
-        scheduler = SessionScheduler([session1, session2], travel_times)
+
+        scheduler = SessionScheduler(session_requests, travel_times)
         schedule = scheduler.optimize_schedule()
-        
+
         # Can't attend both with 3 hour travel time
         assert len(schedule.entries) == 1
 
@@ -695,21 +706,22 @@ class TestILPScheduler:
 class TestSchedulerComparison:
     """Compare effectiveness of all four scheduling algorithms"""
 
-    def _compare_schedulers(self, sessions, travel_times, scenario_name):
+    def _compare_schedulers(self, session_requests, travel_times, scenario_name):
         """Helper to compare all schedulers on a scenario"""
         schedulers = {
-            'Greedy': SessionScheduler(sessions, travel_times),
-            'Backtracking': BacktrackingScheduler(sessions, travel_times),
-            'Branch & Bound': BranchAndBoundScheduler(sessions, travel_times),
+            'Greedy': SessionScheduler(session_requests, travel_times),
+            'Backtracking': BacktrackingScheduler(session_requests, travel_times),
+            'Branch & Bound': BranchAndBoundScheduler(session_requests, travel_times),
         }
 
         # Try to add ILP if pulp is available
         try:
-            schedulers['ILP'] = ILPScheduler(sessions, travel_times)
+            schedulers['ILP'] = ILPScheduler(session_requests, travel_times)
         except ImportError:
             pass
 
         results = {}
+        schedules = {}
 
         for name, scheduler in schedulers.items():
             start_time = time.time()
@@ -721,16 +733,17 @@ class TestSchedulerComparison:
             stats['algorithm'] = name
 
             results[name] = stats
+            schedules[name] = schedule
 
-        return results
+        return results, schedules
 
     def test_simple_scenario_comparison(self):
         """Compare all schedulers on simple scenario"""
-        sessions, travel_times = MockDataGenerator.create_simple_scenario()
-        results = self._compare_schedulers(sessions, travel_times, "Simple")
+        session_requests, travel_times = MockDataGenerator.create_simple_scenario()
+        results, schedules = self._compare_schedulers(session_requests, travel_times, "Simple")
 
         print("\n" + "="*80)
-        print(f"SIMPLE SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print(f"SIMPLE SCENARIO COMPARISON ({len(session_requests)} sessions)")
         print("="*80)
 
         for name, stats in results.items():
@@ -753,15 +766,15 @@ class TestSchedulerComparison:
 
         # Best algorithm should schedule most sessions
         best_scheduled = max(stats['scheduled_sessions'] for stats in results.values())
-        print(f"\n  Best Result: {best_scheduled}/{len(sessions)} sessions scheduled")
+        print(f"\n  Best Result: {best_scheduled}/{len(session_requests)} sessions scheduled")
 
     def test_aws_reinvent_comparison(self):
         """Compare all schedulers on AWS re:Invent scenario"""
-        sessions, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
-        results = self._compare_schedulers(sessions, travel_times, "AWS re:Invent")
+        session_requests, travel_times = MockDataGenerator.create_aws_reinvent_scenario()
+        results, schedules = self._compare_schedulers(session_requests, travel_times, "AWS re:Invent")
 
         print("\n" + "="*80)
-        print(f"AWS RE:INVENT SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print(f"AWS RE:INVENT SCENARIO COMPARISON ({len(session_requests)} sessions)")
         print("="*80)
 
         for name, stats in results.items():
@@ -780,7 +793,7 @@ class TestSchedulerComparison:
         best_total = max(stats['scheduled_sessions'] for stats in results.values()
                         if stats['must_attend']['scheduled'] == best_must_attend)
 
-        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(session_requests)} total")
 
         # Non-greedy algorithms should generally perform better than or equal to greedy
         greedy_scheduled = results['Greedy']['scheduled_sessions']
@@ -792,12 +805,59 @@ class TestSchedulerComparison:
 
     def test_complex_scenario_comparison(self):
         """Compare all schedulers on complex scenario"""
-        sessions, travel_times = MockDataGenerator.create_complex_scenario()
-        results = self._compare_schedulers(sessions, travel_times, "Complex")
+        session_requests, travel_times = MockDataGenerator.create_complex_scenario()
+        results, schedules = self._compare_schedulers(session_requests, travel_times, "Complex")
+
+        # Create priority mapping for display
+        session_priorities = {req.session.id: req.priority for req in session_requests}
 
         print("\n" + "="*80)
-        print(f"COMPLEX SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print(f"COMPLEX SCENARIO COMPARISON ({len(session_requests)} sessions)")
         print("="*80)
+
+        # Part 1: Print entire conference schedule (all time slots from all sessions)
+        print("\n--- (1) ENTIRE CONFERENCE SCHEDULE ---")
+        print("All time slots available across all sessions:\n")
+
+        # Collect all time slots from all sessions
+        all_slots = []
+        for req in session_requests:
+            for slot in req.session.time_slots:
+                all_slots.append((slot, req.session, req.priority))
+
+        # Sort by start time
+        all_slots.sort(key=lambda x: x[0].start_time)
+
+        current_date = None
+        for slot, session, priority in all_slots:
+            slot_date = slot.start_time.date()
+            if current_date != slot_date:
+                current_date = slot_date
+                print(f"\n{slot.start_time.strftime('%B %d, %Y')}:")
+
+            time_str = f"{slot.start_time.strftime('%I:%M %p')} - {slot.end_time.strftime('%I:%M %p')}"
+            priority_tag = "[MUST]" if priority.name == "MUST_ATTEND" else "[OPT] "
+            print(f"  {time_str}  {priority_tag} {session.title}")
+            print(f"                @ {slot.location.name} ({slot.location.building})")
+
+        # Part 2: Print requested sessions
+        print("\n--- (2) REQUESTED SESSIONS ---")
+        print("Sessions the attendee wants to attend:\n")
+
+        must_attend = [req for req in session_requests if req.priority.name == "MUST_ATTEND"]
+        optional = [req for req in session_requests if req.priority.name == "OPTIONAL"]
+
+        print(f"Must-Attend Sessions ({len(must_attend)}):")
+        for req in must_attend:
+            print(f"  [MUST] {req.session.title} ({len(req.session.time_slots)} time slot options)")
+
+        print(f"\nOptional Sessions ({len(optional)}):")
+        for req in optional:
+            print(f"  [OPT]  {req.session.title} ({len(req.session.time_slots)} time slot options)")
+
+        # Part 3: Print algorithm results with scheduled sessions
+        print("\n--- (3) ALGORITHM RESULTS ---")
+        print("Scheduled sessions for each algorithm:\n")
 
         for name, stats in results.items():
             print(f"\n{name} Algorithm:")
@@ -810,12 +870,24 @@ class TestSchedulerComparison:
             if 'branches_pruned' in stats:
                 print(f"  Branches Pruned: {stats['branches_pruned']}")
 
+            # Print scheduled sessions with times and locations
+            schedule = schedules[name]
+            if len(schedule.entries) > 0:
+                print(f"\n  Scheduled Sessions:")
+                sorted_entries = sorted(schedule.entries, key=lambda e: e.time_slot.start_time)
+                for entry in sorted_entries:
+                    priority = session_priorities.get(entry.session.id, Priority.OPTIONAL)
+                    priority_tag = "[MUST]" if priority.name == "MUST_ATTEND" else "[OPT] "
+                    time_str = f"{entry.time_slot.start_time.strftime('%I:%M %p')} - {entry.time_slot.end_time.strftime('%I:%M %p')}"
+                    print(f"    {priority_tag} {entry.session.title}")
+                    print(f"           {time_str} @ {entry.time_slot.location.name}")
+
         # Find best result
         best_must_attend = max(stats['must_attend']['scheduled'] for stats in results.values())
         best_total = max(stats['scheduled_sessions'] for stats in results.values()
                         if stats['must_attend']['scheduled'] == best_must_attend)
 
-        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(session_requests)} total")
 
         # This is where differences should be most visible
         # Non-greedy algorithms should outperform greedy on complex scenarios
@@ -828,11 +900,11 @@ class TestSchedulerComparison:
 
     def test_heavy_conflict_scenario_comparison(self):
         """Compare all schedulers on heavy conflict scenario"""
-        sessions, travel_times = MockDataGenerator.create_heavy_conflict_scenario()
-        results = self._compare_schedulers(sessions, travel_times, "Heavy Conflict")
+        session_requests, travel_times = MockDataGenerator.create_heavy_conflict_scenario()
+        results, schedules = self._compare_schedulers(session_requests, travel_times, "Heavy Conflict")
 
         print("\n" + "="*80)
-        print(f"HEAVY CONFLICT SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print(f"HEAVY CONFLICT SCENARIO COMPARISON ({len(session_requests)} sessions)")
         print("="*80)
 
         for name, stats in results.items():
@@ -851,7 +923,7 @@ class TestSchedulerComparison:
         best_total = max(stats['scheduled_sessions'] for stats in results.values()
                         if stats['must_attend']['scheduled'] == best_must_attend)
 
-        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(session_requests)} total")
 
         # Optimal algorithms should find better solutions than greedy
         greedy_must_attend = results['Greedy']['must_attend']['scheduled']
@@ -861,11 +933,11 @@ class TestSchedulerComparison:
 
     def test_travel_intensive_scenario_comparison(self):
         """Compare all schedulers on travel intensive scenario"""
-        sessions, travel_times = MockDataGenerator.create_travel_intensive_scenario()
-        results = self._compare_schedulers(sessions, travel_times, "Travel Intensive")
+        session_requests, travel_times = MockDataGenerator.create_travel_intensive_scenario()
+        results, schedules = self._compare_schedulers(session_requests, travel_times, "Travel Intensive")
 
         print("\n" + "="*80)
-        print(f"TRAVEL INTENSIVE SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print(f"TRAVEL INTENSIVE SCENARIO COMPARISON ({len(session_requests)} sessions)")
         print("="*80)
 
         for name, stats in results.items():
@@ -884,7 +956,7 @@ class TestSchedulerComparison:
         best_total = max(stats['scheduled_sessions'] for stats in results.values()
                         if stats['must_attend']['scheduled'] == best_must_attend)
 
-        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(session_requests)} total")
 
         # Optimal algorithms should handle travel times better
         greedy_must_attend = results['Greedy']['must_attend']['scheduled']
@@ -894,11 +966,11 @@ class TestSchedulerComparison:
 
     def test_sparse_options_scenario_comparison(self):
         """Compare all schedulers on sparse options scenario"""
-        sessions, travel_times = MockDataGenerator.create_sparse_options_scenario()
-        results = self._compare_schedulers(sessions, travel_times, "Sparse Options")
+        session_requests, travel_times = MockDataGenerator.create_sparse_options_scenario()
+        results, schedules = self._compare_schedulers(session_requests, travel_times, "Sparse Options")
 
         print("\n" + "="*80)
-        print(f"SPARSE OPTIONS SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print(f"SPARSE OPTIONS SCENARIO COMPARISON ({len(session_requests)} sessions)")
         print("="*80)
 
         for name, stats in results.items():
@@ -917,7 +989,7 @@ class TestSchedulerComparison:
         best_total = max(stats['scheduled_sessions'] for stats in results.values()
                         if stats['must_attend']['scheduled'] == best_must_attend)
 
-        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(session_requests)} total")
 
         # Backtracking critical for finding feasible solutions with sparse options
         greedy_must_attend = results['Greedy']['must_attend']['scheduled']
@@ -927,11 +999,11 @@ class TestSchedulerComparison:
 
     def test_large_scale_scenario_comparison(self):
         """Compare all schedulers on large scale scenario"""
-        sessions, travel_times = MockDataGenerator.create_large_scale_scenario()
-        results = self._compare_schedulers(sessions, travel_times, "Large Scale")
+        session_requests, travel_times = MockDataGenerator.create_large_scale_scenario()
+        results, schedules = self._compare_schedulers(session_requests, travel_times, "Large Scale")
 
         print("\n" + "="*80)
-        print(f"LARGE SCALE SCENARIO COMPARISON ({len(sessions)} sessions)")
+        print(f"LARGE SCALE SCENARIO COMPARISON ({len(session_requests)} sessions)")
         print("="*80)
 
         for name, stats in results.items():
@@ -950,7 +1022,7 @@ class TestSchedulerComparison:
         best_total = max(stats['scheduled_sessions'] for stats in results.values()
                         if stats['must_attend']['scheduled'] == best_must_attend)
 
-        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(sessions)} total")
+        print(f"\n  Best Result: {best_must_attend}/{results['Greedy']['must_attend']['total']} must-attend, {best_total}/{len(session_requests)} total")
 
         # Performance differences should be visible at scale
         greedy_must_attend = results['Greedy']['must_attend']['scheduled']
@@ -974,11 +1046,11 @@ class TestSchedulerComparison:
         print("COMPREHENSIVE ALGORITHM COMPARISON")
         print("="*80)
 
-        for scenario_name, (sessions, travel_times) in scenarios:
-            print(f"\n{scenario_name} Scenario ({len(sessions)} sessions):")
+        for scenario_name, (session_requests, travel_times) in scenarios:
+            print(f"\n{scenario_name} Scenario ({len(session_requests)} sessions):")
             print("-" * 80)
 
-            results = self._compare_schedulers(sessions, travel_times, scenario_name)
+            results, schedules = self._compare_schedulers(session_requests, travel_times, scenario_name)
 
             # Create comparison table
             headers = ["Algorithm", "Must-Attend", "Total", "Time (ms)"]
