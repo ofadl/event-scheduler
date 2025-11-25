@@ -408,6 +408,7 @@ Potential improvements:
    - Simulated annealing for approximate solutions
 
 2. **Additional Constraints**:
+   - Willingness to be late to a session
    - Session prerequisites
    - Speaker preferences
    - Maximum sessions per day
@@ -425,16 +426,6 @@ Potential improvements:
    - Mobile app
 
 ## Design Decisions
-
-### Why Greedy Algorithm?
-
-- **Pros**: Fast, simple, good enough for most cases
-- **Cons**: Not guaranteed optimal solution
-- **Tradeoff**: Prioritizes must-attend sessions, which is the main requirement
-
-### Why Sort by Time Slot Count?
-
-Sessions with fewer time options are scheduled first because they're harder to fit in later.
 
 ### Why Separate Priority Phases?
 
